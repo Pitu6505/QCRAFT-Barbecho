@@ -1,0 +1,9 @@
+# .gitignore
+__pycache__/
+ids.txt
+*.pyc
+.env
+venv/
+.venv/
+.idea/
+.vscode/

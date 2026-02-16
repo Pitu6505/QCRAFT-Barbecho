@@ -1,0 +1,9 @@
+{'region': 'us-west-1', 'deviceArn': 'arn:aws:braket:us-west-1::device/qpu/rigetti/Ankaa-3', 'deviceName': 'Ankaa-3', 'queueSize': 0, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'Rigetti', 'qubitCount': 82}
+{'region': 'us-east-1', 'deviceArn': 'arn:aws:braket:us-east-1::device/qpu/ionq/Forte-1', 'deviceName': 'Forte 1', 'queueSize': 0, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IonQ', 'qubitCount': 36}
+{'region': 'eu-north-1', 'deviceArn': 'arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet', 'deviceName': 'Garnet', 'queueSize': 0, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IQM', 'qubitCount': 20}
+{'deviceName': 'ibm_brisbane', 'queueSize': 423, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IBM', 'qubitCount': 127}
+{'deviceName': 'ibm_fez', 'queueSize': 7, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IBM', 'qubitCount': 156}
+{'deviceName': 'ibm_sherbrooke', 'queueSize': 180, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IBM', 'qubitCount': 127}
+{'deviceName': 'ibm_torino', 'queueSize': 145, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IBM', 'qubitCount': 133}
+{'deviceName': 'ibm_marrakesh', 'queueSize': 1, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IBM', 'qubitCount': 156}
+{'deviceName': 'ibm_kingston', 'queueSize': 1, 'deviceStatus': 'ONLINE', 'deviceType': 'QPU', 'providerName': 'IBM', 'qubitCount': 156}
