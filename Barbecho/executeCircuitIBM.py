@@ -209,7 +209,7 @@ class executeCircuitIBM:
         counts = result[0].data.creg_c.get_counts()
         return counts
 
-    def runIBM_save(self, machine:str, circuit:QuantumCircuit, shots:int,users:list, qubit_number:list, circuit_names:list) -> dict:
+    def runIBM_save(self, machine:str, circuit:QuantumCircuit, shots:int,users:list, qubit_number:list, circuit_names:list, initial_layout:list|None=None) -> dict:
         """
         Executes a circuit in the IBM cloud and saves the task id if the machine crashes.
 
@@ -220,6 +220,7 @@ class executeCircuitIBM:
             users (list): The users that executed the circuit.        
             qubit_number (list): The number of qubits of the circuit per user.        
             circuit_names (list): The name of the circuit that was executed per user.
+            initial_layout (list|None): Mapeo inicial virtual->físico para transpilar.
 
         Returns:
             dict: The results of the circuit execution.
@@ -241,7 +242,10 @@ class executeCircuitIBM:
             #sampler.options.execution.rep_delay = 0.5 # set it to the maximum of the machine instead -> config.rep_delay_range[1]
             sampler.options.execution.rep_delay = backend.configuration().rep_delay_range[1] # set it to the maximum of the machine instead -> config.rep_delay_range[1]
             with self.transpile_lock:
-                qc_basis = transpile(circuit, backend=backend)
+                if initial_layout:
+                    qc_basis = transpile(circuit, backend=backend, initial_layout=initial_layout)
+                else:
+                    qc_basis = transpile(circuit, backend=backend)
             x = int(shots)
 
             while True:

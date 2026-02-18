@@ -2,10 +2,12 @@ import json
 import requests
 from flask import request
 import re
+from circuit_queue import CircuitQueue
+from main_persistent import select_best_qubits_persistent
 from executeCircuitIBM import executeCircuitIBM
 from executeCircuitAWS import runAWS, runAWS_save, code_to_circuit_aws, AWS 
 from ResettableTimer import ResettableTimer
-from threading import Thread
+from threading import Thread, Lock
 from typing import Callable
 import time
 from entrenamientoML import load_model
@@ -101,8 +103,8 @@ class SchedulerPolicies:
         
         self.setMaxQubits()
         self.max_qubits = 266 #254 o 266
-        self.max_qubits_send = 133 #127 o 133
-        self.machine_ibm = 'ibm_torino' # ibm_brisbane o ibm_torino
+        self.max_qubits_send = 156 #127 o 133
+        self.machine_ibm = 'ibm_fez' # ibm_brisbane o ibm_torino
         self.machine_aws = 'local'
         
 
@@ -115,7 +117,10 @@ class SchedulerPolicies:
                         'MaxML' : Policy(self.mainML, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
                         'MaxPD' : Policy(self.mainPD, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
                         'time_maquinas' : Policy(self.send_maquinas, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
-                        'batch' : Policy(self.send_individual_batches, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm)}
+                        'batch' : Policy(self.send_individual_batches, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
+                        'Islas_Cuanticas_Edges': Policy(self.send_graph_placement_edges, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm)}
+
+        self.islas_cuanticas_lock = Lock()
         
         
         
@@ -191,7 +196,22 @@ class SchedulerPolicies:
         return 'Data received', 200
         
      #EL BUENO QUE HAY
-    def executeCircuit(self,data:dict,qb:list,shots:list,provider:str,urls:list, machine:str) -> None: #Data is the composed circuit to execute, qb is the number of qubits per circuit, shots is the number of shots per circut, provider is the provider of the circuit, urls is the array with data of each circuit (url, num_qubits, shots, user, circuit_name)
+    def _compose_initial_layout(self, urls: list, layout_fisico: dict | None):
+        if not layout_fisico:
+            return None
+
+        initial_layout = []
+        for item in urls:
+            user_id = str(item[3])
+            assigned = layout_fisico.get(user_id)
+            if not assigned:
+                return None
+            initial_layout.extend(assigned)
+
+        return initial_layout if initial_layout else None
+
+
+    def executeCircuit(self,data:dict,qb:list,shots:list,provider:str,urls:list, machine:str, layout_fisico:dict|None=None) -> None: #Data is the composed circuit to execute, qb is the number of qubits per circuit, shots is the number of shots per circut, provider is the provider of the circuit, urls is the array with data of each circuit (url, num_qubits, shots, user, circuit_name)
         """
         Executes the circuit in the selected provider
 
@@ -235,10 +255,11 @@ class SchedulerPolicies:
         print('_____________________________________________________________________')
         try:
             if provider == 'ibm':
+                initial_layout = self._compose_initial_layout(urls, layout_fisico)
                 #backend = least_busy_backend_ibm(sum(qb))
                 # TODO escoger el backend más adecuado para el circuito
                 #counts = runIBM(self.machine_ibm,loc['circuit'],max(shots)) #Ejecutar el circuito y obtener el resultado
-                counts = self.executeCircuitIBM.runIBM_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls]) #Ejecutar el circuito y obtener el resultado
+                counts = self.executeCircuitIBM.runIBM_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls], initial_layout=initial_layout) #Ejecutar el circuito y obtener el resultado
             else:
                 counts = runAWS_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls],'') #Ejecutar el circuito y obtener el resultado
         except Exception as e:
@@ -306,7 +327,11 @@ class SchedulerPolicies:
             code.insert(0, "from collections import Counter")
             code.insert(0, "from braket.circuits import Circuit")
 
-        for batch_idx, batch in enumerate(urls):
+        normalized_urls = urls
+        if urls and len(urls[0]) >= 7:
+            normalized_urls = [(urls, sum(url[1] for url in urls), 1)]
+
+        for batch_idx, batch in enumerate(normalized_urls):
             urls_batch, sumQb, batchNr = batch
             print("DEBUG urls_batch:", urls_batch)
 
@@ -346,7 +371,7 @@ class SchedulerPolicies:
                 qb.append(num_qubits)
 
 
-            if provider == 'ibm' and batch_idx < len(urls) - 1:
+            if provider == 'ibm' and batch_idx < len(normalized_urls) - 1:
                 code.append("circuit.barrier()")
                 for i in range(composition_qubits):
                     code.append(f"circuit.reset(qreg_q[{i}])")
@@ -506,8 +531,152 @@ class SchedulerPolicies:
             print(f"📌 Total acumulado: {len(self.urls_ya_procesados)} circuitos únicos ejecutados.\n")
 
 
+    def send_graph_placement_edges(self, queue, max_qubits, provider, executeCircuit, machine):
+        """
+        Política que asigna circuitos a qubits físicos usando el grafo + edges de los circuitos.
+        """
+        with self.islas_cuanticas_lock:
+            print("Ejecutando política de Islas Cuánticas (con edges)...")
+            start_time = time.process_time()
 
+            if not queue:
+                print("⚠️ La cola está vacía, deteniendo temporizador.")
+                self.services['Islas_Cuanticas_Edges'].timers[provider].stop()
+                return
 
+            # Proveedor que se esta utilizando
+            print(f"Proveedor seleccionado: {provider}")
+
+            
+            formatted_queue = CircuitQueue()
+            for (circuit, num_qubits, shots, user, circuit_name, maxDepth, iteracion) in queue:
+                #print("mostrando circuito:", circuit)
+                edges = self.extract_edges_from_circuit(circuit) 
+                formatted_queue.add_circuit(
+                    circuit_id=str(user),
+                    required_qubits=num_qubits,
+                    edges=edges
+                )
+            print(f"Cola formateada con edges: {formatted_queue.get_queue()}")
+
+            backend_name = self.machine_ibm if provider == 'ibm' else None
+            cola_procesada, layout_fisico, placement_errors = select_best_qubits_persistent(
+                circuits=formatted_queue,
+                provider=provider,
+                backend_name=backend_name,
+                noise_threshold=None,
+                max_time_seconds=60
+            )
+            print(f" Cola procesada: {cola_procesada}")
+            print(f" Layout físico asignado: {layout_fisico}")
+            if placement_errors:
+                print(f" Errores de colocación: {placement_errors}")
+
+            if not cola_procesada:
+                print(" No se han seleccionado elementos, deteniendo ejecución.")
+                self.services['Islas_Cuanticas_Edges'].timers[provider].stop()
+                return
+
+            seleccionados_ids = {str(s['id']) for s in cola_procesada}
+            seleccionados_completos = [item for item in queue if str(item[3]) in seleccionados_ids]
+
+            urls_for_create = [
+                (circuit, num_qubits, shots, user, circuit_name, maxDepth, iteracion)
+                for (circuit, num_qubits, shots, user, circuit_name, maxDepth, iteracion) in seleccionados_completos
+            ]
+
+            queue[:] = [
+                (circuit, num_qubits, shots, user, circuit_name, maxDepth, iteracion + 1)
+                for (circuit, num_qubits, shots, user, circuit_name, maxDepth, iteracion) in queue
+                    if str(user) not in seleccionados_ids
+            ]
+
+            # if urls_for_create:
+            #     total_qbits = sum(item[1] for item in urls_for_create)
+            #     print(f"Suma total de qubits a ejecutar: {total_qbits}")
+            #     code, qb = [], []
+            #     shotsUsr = [item[2] for item in urls_for_create]
+            #     self.create_circuit(urls_for_create, code, qb, provider)
+            #     data = {"code": code}
+            #     Thread(target=executeCircuit, args=(json.dumps(data), qb, shotsUsr, provider, urls_for_create, machine, layout_fisico)).start()
+
+            end_time = time.process_time()
+            elapsed_time = end_time - start_time
+            print(f"Tiempo de ejecución de send_edges: {elapsed_time:.6f} segundos")
+
+            with open("./resultados/SalidaIslasCuanticasEdges.txt", 'a') as file:
+                file.write("Cola Formateada con edges:")
+                file.write(str(formatted_queue))
+                file.write("\n")
+                file.write("Cola Seleccionada:")
+                file.write(str(cola_procesada))
+                file.write("\n")
+                file.write("Layout Físico:")
+                file.write(str(layout_fisico))
+                file.write("\n")
+                file.write("Tiempo Ejecucion:")
+                file.write(str(elapsed_time))
+                file.write("\n")
+
+            if not queue:
+                print(" Cola vacía después de ejecución, deteniendo temporizador.")
+                self.services['Islas_Cuanticas_Edges'].timers[provider].stop()
+            else:
+                self.services['Islas_Cuanticas_Edges'].timers[provider].reset()
+
+    def extract_edges_from_circuit(self, circuit_code: str):
+        """
+        Extrae las 'edges' (conexiones lógicas entre qubits) de un código Qiskit
+        en formato de texto como los que tienes en la cola:
+          circuit.cx(qreg_q[0], qreg_q[1])
+          circuit.ccx(qreg_q[0], qreg_q[1], qreg_q[2])
+          circuit.swap(qreg_q[3], qreg_q[4])
+        Devuelve una lista de tuplas (q_phys_a, q_phys_b) con q_phys_a < q_phys_b.
+        NO ejecuta el código del circuito.
+        """
+        if not circuit_code:
+            return []
+
+        edges = set()
+        # Recorremos línea a línea
+        for line in circuit_code.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            # Queremos sólo las llamadas tipo 'circuit.<gate>(...)'
+            m = re.match(r'circuit\.(\w+)\s*\((.)\)\s', line)
+            if not m:
+                continue
+
+            gate = m.group(1).lower()
+            args = m.group(2)
+
+            # Extraer todas las ocurrencias qreg_q[...]
+            bracket_contents = re.findall(r'qreg_q\[\s*([^\]]+)\s*\]', args)
+            qubits = []
+            for inner in bracket_contents:
+                # Extraemos todos los números dentro del interior del corchete
+                nums = re.findall(r'(\d+)', inner)
+                if not nums:
+                    # Si no hay números, no podemos resolver el índice -> lo ignoramos
+                    # (por ejemplo si aparece 'composition_qubits+X' sin valores numéricos)
+                    continue
+                # Sumamos los números que aparezcan en el interior (maneja '4+2' -> 6)
+                idx = sum(int(n) for n in nums)
+                qubits.append(idx)
+
+            # Si hay >=2 qubits en la instrucción, agregamos las aristas (pares)
+            if len(qubits) >= 2:
+                for a, b in combinations(qubits, 2):
+                    edges.add(tuple(sorted((a, b))))
+
+            # Puertas de 1 qubit no generan edges (medida, h, x, y, z, t, ...)
+            # Si deseas soportar puertas específicas que implican conectividad distinta,
+            # añádelas aquí.
+
+        # devolver como lista ordenada para estabilidad
+        return sorted(edges)
 
         
     # def encontrar_mejor_batch(self, cola, max_qubits):
