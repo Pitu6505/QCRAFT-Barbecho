@@ -27,7 +27,7 @@ import subprocess
 
 import sys
 
-CARPETA_SALIDAS = os.path.join("QCRAFT-Scheduler", "QCRAFT-Scheduler", "salidas")
+CARPETA_SALIDAS = os.path.join("Barbecho", "salidas")
 class Policy:
     """
     Class to store the queues and timers of a policy
@@ -96,7 +96,7 @@ class SchedulerPolicies:
         self.iteracion_tiempo = 0
         self.iteracion_ML = 0
         self.app = app
-        self.time_limit_seconds = 600#300 #estaba en 600
+        self.time_limit_seconds = 20#300 #estaba en 600
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
@@ -359,209 +359,7 @@ class SchedulerPolicies:
         code.append("return circuit")
 
 
-    # #POLITICA DE TIEMPO HORIZONTAL
-    # def send(self, queue: list, max_qubits: int, provider: str, executeCircuit: Callable, machine: str) -> None:
-    #     """
-    #     Modificado para garantizar que en cada iteración se ejecute un único circuito compuesto
-    #     (que puede contener hasta 2 batches si hay suficientes circuitos).
-    #     """
-    #     if not queue:
-    #         print("\n✅ No hay más elementos en la cola. Programa finalizado.\n")
-    #         return
-
-    #     if not hasattr(self, "urls_ya_procesados"):
-    #         self.urls_ya_procesados = set()
-
-    #     self.iteracion_tiempo += 1
-    #     colas_sin_criterio = self.obtener_colas_sin_criterio(queue)
-
-    #     file_name = os.path.join(CARPETA_SALIDAS, f"criterio_tiempo.txt")
-    #     elementos_procesados_total = 0
-
-    #     for criterio, cola_original in colas_sin_criterio.items():
-    #         if not cola_original:
-    #             continue
-
-    #         cola = list(cola_original)  # Copia para trabajar
-    #         batches = []
-
-    #         # Generar hasta 2 batches por iteración (si hay suficientes circuitos)
-    #         for batch_num in range(1, 498):  
-    #             urls_batch = []
-    #             sumQb = 0
-
-    #             for url in cola:
-    #                 if url in self.urls_ya_procesados:
-    #                     continue
-    #                 if url[1] + sumQb <= max_qubits:
-    #                     urls_batch.append(url)
-    #                     sumQb += url[1]
-
-    #             if not urls_batch:
-    #                 break  # No hay más circuitos para este batch
-
-    #             batches.append((urls_batch, sumQb, batch_num))
-    #             self.urls_ya_procesados.update(urls_batch)
-
-    #             # Eliminar de la cola principal y la cola del criterio
-    #             for url in urls_batch:
-    #                 if url in queue:
-    #                     queue.remove(url)
-    #                 if url in cola_original:
-    #                     cola_original.remove(url)
-
-    #         # ⚡ Procesar todos los batches juntos en esta iteración
-    #         if batches:
-    #             with open(file_name, "a") as file:
-    #                 file.write(f"\n Iteración {self.iteracion_tiempo} - Máquina: {machine} -- Qubits: {max_qubits}\n")
-    #                 for urls_batch, sumQb, batch_num in batches:
-    #                     file.write(f"  Batch #{batch_num}: [")
-    #                     for url in urls_batch:
-    #                         file.write(f"('{url[4]}', {url[1]} qubits, shots={url[2]}), ")
-    #                     file.write("]\n")
-    #                     file.write(f"    Total qubits usados: {sumQb}\n")
-
-    #             # Construir el circuito único de la iteración
-    #             code, qb = [], []
-    #             shotsUsr = [1000] * sum(len(batch[0]) for batch in batches)  # 1000 fijo por circuito
-    #             self.create_circuit(batches, code, qb, provider)
-
-    #             print(f"///////// EJECUTANDO ITERACIÓN {self.iteracion_tiempo} /////////")
-    #             data = {"code": code}
-
-    #             # ⚠️ Aquí ya no paso urls_batch, sino todos los batches de la iteración
-    #             all_urls = [url for batch in batches for url in batch[0]]
-    #             executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine) #AQUI PARA EJECUTAR
-    #             elementos_procesados_total += len(all_urls)
-
-    #     if elementos_procesados_total == 0:
-    #         print(f"\n⚠ Iteración {self.iteracion_tiempo} no generó batches (cola vacía o sin circuitos válidos).")
-    #     else:
-    #         print(f"\n✅ Iteración {self.iteracion_tiempo} completada con {len(batches)} batch(es).")
-    #         print(f"📊 Circuitos procesados en esta iteración: {elementos_procesados_total}")
-    #         print(f"📌 Total acumulado: {len(self.urls_ya_procesados)} circuitos únicos ejecutados.\n")
-
-    
-
-    # POLÍTICA DE TIEMPO HORIZONTAL
-    # POLITICA DE TIEMPO HORIZONTAL
-    # POLITICA DE TIEMPO HORIZONTAL
-    # POLITICA DE TIEMPO HORIZONTAL
-    # POLITICA DE TIEMPO HORIZONTAL
-    # POLITICA DE TIEMPO HORIZONTAL
-    # POLITICA DE TIEMPO HORIZONTAL
-    # def send(self, queue: list, max_qubits: int, provider: str, executeCircuit: Callable, machine: str) -> None:
-    #     """
-    #     Ejecuta batches normalmente, pero cada vez que la suma total de qubits acumulados
-    #     supera 20, ejecuta inmediatamente y continúa con la siguiente tanda.
-    #     """
-    #     if not queue:
-    #         print("\n✅ No hay más elementos en la cola. Programa finalizado.\n")
-    #         return
-
-    #     if not hasattr(self, "urls_ya_procesados"):
-    #         self.urls_ya_procesados = set()
-
-    #     self.iteracion_tiempo += 1
-    #     colas_sin_criterio = self.obtener_colas_sin_criterio(queue)
-
-    #     file_name = os.path.join(CARPETA_SALIDAS, "criterio_tiempo.txt")
-    #     elementos_procesados_total = 0
-
-    #     LIMITE_EJECUCION_QUBITS = 65500  # 🔹 Ejecutar cuando se pase de 20 qubits acumulados
-
-    #     for criterio, cola_original in colas_sin_criterio.items():
-    #         if not cola_original:
-    #             continue
-
-    #         cola = list(cola_original)
-    #         batches = []
-    #         sumQb_total = 0
-    #         batch_counter = 1  # 🔹 Contador que se reiniciará tras cada ejecución
-
-    #         for url in list(cola):  # iteramos sobre copia
-    #             if url in self.urls_ya_procesados:
-    #                 continue
-
-    #             # Intentamos meter el circuito actual en el batch activo o uno nuevo
-    #             if not batches or (batches[-1][1] + url[1]) > max_qubits:
-    #                 # nuevo batch
-    #                 batches.append(([url], url[1], batch_counter))
-    #                 batch_counter += 1
-    #             else:
-    #                 # añadir al último batch
-    #                 batches[-1][0].append(url)
-    #                 batches[-1] = (batches[-1][0], batches[-1][1] + url[1], batches[-1][2])
-
-    #             # marcar procesado
-    #             self.urls_ya_procesados.add(url)
-    #             if url in queue:
-    #                 queue.remove(url)
-    #             if url in cola_original:
-    #                 cola_original.remove(url)
-
-    #             # actualizar suma global
-    #             sumQb_total += url[1]
-
-    #             # ⚡ Si superamos el límite global (20 qubits), ejecutamos inmediatamente
-    #             if sumQb_total >= LIMITE_EJECUCION_QUBITS:
-    #                 with open(file_name, "a") as file:
-    #                     file.write(f"\n Iteración {self.iteracion_tiempo} - Máquina: {machine} -- Límite ejecución: {LIMITE_EJECUCION_QUBITS} qubits\n")
-    #                     for urls_batch, sumQb_b, batch_num_b in batches:
-    #                         file.write(f"  Batch #{batch_num_b}: [")
-    #                         for u in urls_batch:
-    #                             file.write(f"('{u[4]}', {u[1]} qubits, shots={u[2]}), ")
-    #                         file.write("]\n")
-    #                         file.write(f"    Total qubits usados: {sumQb_b}\n")
-
-    #                 # Construir y ejecutar
-    #                 code, qb = [], []
-    #                 shotsUsr = [1000] * sum(len(batch[0]) for batch in batches)
-    #                 self.create_circuit(batches, code, qb, provider)
-
-    #                 print(f"///////// EJECUTANDO ITERACIÓN {self.iteracion_tiempo} /////////")
-    #                 data = {"code": code}
-    #                 all_urls = [u for batch in batches for u in batch[0]]
-
-    #                 #executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine)
-    #                 elementos_procesados_total += len(all_urls)
-
-    #                 # 🔁 Reiniciamos para siguiente ejecución
-    #                 self.iteracion_tiempo += 1
-    #                 batches = []
-    #                 sumQb_total = 0
-    #                 batch_counter = 1  # Reinicia numeración de batches
-
-    #         # ⚠ Si quedaron circuitos sin llegar a los 20 qubits finales, ejecutar esos también
-    #         if batches:
-    #             with open(file_name, "a") as file:
-    #                 file.write(f"\n Iteración {self.iteracion_tiempo} - Máquina: {machine} -- Ejecución final parcial\n")
-    #                 for urls_batch, sumQb_b, batch_num_b in batches:
-    #                     file.write(f"  Batch #{batch_num_b}: [")
-    #                     for u in urls_batch:
-    #                         file.write(f"('{u[4]}', {u[1]} qubits, shots={u[2]}), ")
-    #                     file.write("]\n")
-    #                     file.write(f"    Total qubits usados: {sumQb_b}\n")
-
-    #             code, qb = [], []
-    #             shotsUsr = [1000] * sum(len(batch[0]) for batch in batches)
-    #             self.create_circuit(batches, code, qb, provider)
-
-    #             print(f"///////// EJECUTANDO ITERACIÓN FINAL {self.iteracion_tiempo} /////////")
-    #             data = {"code": code}
-    #             all_urls = [u for batch in batches for u in batch[0]]
-
-    #             executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine)
-    #             elementos_procesados_total += len(all_urls)
-
-    #     if elementos_procesados_total == 0:
-    #         print(f"\n⚠ Iteración {self.iteracion_tiempo} no generó batches (cola vacía o sin circuitos válidos).")
-    #     else:
-    #         print(f"\n✅ Iteraciones completadas. Circuitos totales procesados: {elementos_procesados_total}")
-    #         print(f"📌 Total acumulado: {len(self.urls_ya_procesados)} circuitos únicos ejecutados.\n")
-
-
-
+   
     def send(self, queue: list, max_qubits: int, provider: str, executeCircuit: Callable, machine: str) -> None:
         """
         Ejecuta batches normalmente, pero cada vez que la suma total de qubits acumulados
@@ -663,13 +461,13 @@ class SchedulerPolicies:
 
                     code, qb = [], []
                     shotsUsr = [1000] * sum(len(batch[0]) for batch in batches)
-                    self.create_circuit(batches, code, qb, provider)
+                    #self.create_circuit(batches, code, qb, provider)
 
                     print(f"///////// EJECUTANDO ITERACIÓN {self.iteracion_tiempo} /////////")
                     data = {"code": code}
                     all_urls = [u for batch in batches for u in batch[0]]
 
-                    executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine)
+                    #executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine)
                     elementos_procesados_total += len(all_urls)
 
                     # reinicios parciales
@@ -692,13 +490,13 @@ class SchedulerPolicies:
 
                 code, qb = [], []
                 shotsUsr = [1000] * sum(len(batch[0]) for batch in batches)
-                self.create_circuit(batches, code, qb, provider)
+                #self.create_circuit(batches, code, qb, provider)
 
                 print(f"///////// EJECUTANDO ITERACIÓN FINAL {self.iteracion_tiempo} /////////")
                 data = {"code": code}
                 all_urls = [u for batch in batches for u in batch[0]]
 
-                executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine)
+                #executeCircuit(json.dumps(data), qb, shotsUsr, provider, all_urls, machine)
                 elementos_procesados_total += len(all_urls)
 
         if elementos_procesados_total == 0:

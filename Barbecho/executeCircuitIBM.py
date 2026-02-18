@@ -26,6 +26,8 @@ class executeCircuitIBM:
     def __init__(self):
         self.transpile_lock = threading.Lock()
         self.condition = threading.Condition()
+
+        
         
         all_jobs = self.service.jobs()
         self.queued_jobs = len([job for job in all_jobs if job.status() == qiskit.providers.JobStatus.QUEUED])

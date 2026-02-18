@@ -112,7 +112,7 @@ urls = {
 #random_urls = [fixed_url for _ in range(num_urls)]
 # random_urls = list(set(urls.values()))  # una sola vez cada circuito
 
-num_repeticiones = 147 #147 
+num_repeticiones = 2 #147 
 
 base_urls = list(set(urls.values()))  # sin duplicados
 random_urls = base_urls * num_repeticiones  # repetir n veces
@@ -135,7 +135,7 @@ async def main():
                 "url": url_value,
                 "shots": 10000,
                 "provider": ['ibm'],
-                "policy": "multibatch", #time o batch o multibatch
+                "policy": "time", #time o batch o multibatch
                 "criterio": 0
             }
            
