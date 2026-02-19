@@ -25,16 +25,28 @@ def calculate_dynamic_noise_threshold(G, percentile=Porcentaje_util):
     print(f"🎯 Umbral dinámico calculado: {dynamic_threshold:.4f} (percentil {percentile})")
     return dynamic_threshold
 
-def calculate_dynamic_distance(circuits):
+def calculate_dynamic_distance(circuits, fixed_distance: int | None = None):
     """
-    Calcula la distancia dinámica entre circuitos basándose en la media de tamaños.
-    Redondea siempre hacia arriba.
+    Calcula la distancia entre circuitos.
+
+    - Si fixed_distance está definido → usa ese valor.
+    - Si no → calcula dinámicamente usando la media de tamaños (ceil).
     """
+
+    # 🔒 Si viene forzada desde el Job híbrido
+    if fixed_distance is not None:
+        print(f"🔒 Distancia fija utilizada para este Job: {fixed_distance}")
+        return fixed_distance
+
+    # ⚠️ Seguridad
     if not circuits:
+        print("📏 Distancia por defecto usada: 1 (cola vacía)")
         return 1
-    
+
+    # 📏 Cálculo dinámico normal
     avg_size = sum(c['size'] for c in circuits) / len(circuits)
     dynamic_distance = math.ceil(avg_size)
+
     print(f"📏 Distancia dinámica calculada: {dynamic_distance} (media de tamaños: {avg_size:.2f})")
     return dynamic_distance
 

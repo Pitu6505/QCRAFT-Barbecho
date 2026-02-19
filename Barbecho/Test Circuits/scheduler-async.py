@@ -135,7 +135,7 @@ async def main():
                 "url": url_value,
                 "shots": 10000,
                 "provider": ['ibm'],
-                "policy": "time", #time o batch o multibatch
+                "policy": "barbecho", #time o batch o multibatch
                 "criterio": 0
             }
            

@@ -66,90 +66,91 @@ def _normalize_circuits(circuits):
         normalized.append(item)
 
     return normalized
+# ESTO ESTA BIEN
 
+# def select_best_qubits_persistent(
+#     circuits,
+#     provider: str = "ibm",
+#     backend_name: str | None = None,
+#     noise_threshold: float | None = None,
+#     max_time_seconds: int = 60,
+#     fixed_distance: int | None = None, 
+# ):
+#     """
+#     Selecciona qubits físicos para una cola de circuitos según ruido + uso histórico.
 
-def select_best_qubits_persistent(
-    circuits,
-    provider: str = "ibm",
-    backend_name: str | None = None,
-    noise_threshold: float | None = None,
-    max_time_seconds: int = 60,
-):
-    """
-    Selecciona qubits físicos para una cola de circuitos según ruido + uso histórico.
+#     Args:
+#         circuits: lista de dicts con llaves {id, size, edges?} o un CircuitQueue.
+#         provider: "ibm" o "aws".
+#         backend_name: backend a utilizar (opcional).
+#         noise_threshold: umbral fijo de ruido (None = dinámico).
+#         max_time_seconds: timeout del algoritmo de colocación.
 
-    Args:
-        circuits: lista de dicts con llaves {id, size, edges?} o un CircuitQueue.
-        provider: "ibm" o "aws".
-        backend_name: backend a utilizar (opcional).
-        noise_threshold: umbral fijo de ruido (None = dinámico).
-        max_time_seconds: timeout del algoritmo de colocación.
+#     Returns:
+#         tuple:
+#           - cola_procesada (list[dict]) -> [{"id", "size", "physical_qubits"}, ...]
+#           - layout_fisico (dict[str, list[int]]) -> id_circuito -> qubits físicos
+#           - errors (list[str])
+#     """
+#     platform = _normalize_provider(provider)
+#     normalized_circuits = _normalize_circuits(circuits)
 
-    Returns:
-        tuple:
-          - cola_procesada (list[dict]) -> [{"id", "size", "physical_qubits"}, ...]
-          - layout_fisico (dict[str, list[int]]) -> id_circuito -> qubits físicos
-          - errors (list[str])
-    """
-    platform = _normalize_provider(provider)
-    normalized_circuits = _normalize_circuits(circuits)
+#     if not normalized_circuits:
+#         return [], {}, []
 
-    if not normalized_circuits:
-        return [], {}, []
+#     coupling_map, properties, backend_obj, resolved_backend_name = _resolve_backend_data(
+#         platform=platform,
+#         backend_name=backend_name,
+#     )
 
-    coupling_map, properties, backend_obj, resolved_backend_name = _resolve_backend_data(
-        platform=platform,
-        backend_name=backend_name,
-    )
+#     graph = build_graph(
+#         coupling_map,
+#         properties,
+#         partition_mode=USE_PARTITION,
+#         partition_index=PARTITION_INDEX,
+#         partitions=PARTITIONS,
+#         partition_ranges=None,
+#     )
 
-    graph = build_graph(
-        coupling_map,
-        properties,
-        partition_mode=USE_PARTITION,
-        partition_index=PARTITION_INDEX,
-        partitions=PARTITIONS,
-        partition_ranges=None,
-    )
+#     calibration_id = get_calibration_id(
+#         backend_name=resolved_backend_name,
+#         platform=platform,
+#         backend_obj=backend_obj,
+#         properties=properties,
+#     )
 
-    calibration_id = get_calibration_id(
-        backend_name=resolved_backend_name,
-        platform=platform,
-        backend_obj=backend_obj,
-        properties=properties,
-    )
+#     usage_vector, _ = load_usage_vector(
+#         resolved_backend_name,
+#         graph.number_of_nodes(),
+#         calibration_id,
+#     )
 
-    usage_vector, _ = load_usage_vector(
-        resolved_backend_name,
-        graph.number_of_nodes(),
-        calibration_id,
-    )
+#     placements, errors = place_circuits_persistent(
+#         G=graph,
+#         circuits=normalized_circuits,
+#         usage_vector=usage_vector,
+#         backend_name=resolved_backend_name,
+#         calibration_id=calibration_id,
+#         noise_threshold=noise_threshold,
+#         max_time_seconds=max_time_seconds,
+#     )
 
-    placements, errors = place_circuits_persistent(
-        G=graph,
-        circuits=normalized_circuits,
-        usage_vector=usage_vector,
-        backend_name=resolved_backend_name,
-        calibration_id=calibration_id,
-        noise_threshold=noise_threshold,
-        max_time_seconds=max_time_seconds,
-    )
+#     sizes_by_id = {str(c["id"]): c["size"] for c in normalized_circuits}
+#     cola_procesada = []
+#     layout_fisico = {}
 
-    sizes_by_id = {str(c["id"]): c["size"] for c in normalized_circuits}
-    cola_procesada = []
-    layout_fisico = {}
+#     for circuit_id, physical_qubits in placements:
+#         cid = str(circuit_id)
+#         layout_fisico[cid] = physical_qubits
+#         cola_procesada.append(
+#             {
+#                 "id": cid,
+#                 "size": sizes_by_id.get(cid, len(physical_qubits)),
+#                 "physical_qubits": physical_qubits,
+#             }
+#         )
 
-    for circuit_id, physical_qubits in placements:
-        cid = str(circuit_id)
-        layout_fisico[cid] = physical_qubits
-        cola_procesada.append(
-            {
-                "id": cid,
-                "size": sizes_by_id.get(cid, len(physical_qubits)),
-                "physical_qubits": physical_qubits,
-            }
-        )
-
-    return cola_procesada, layout_fisico, errors
+#     return cola_procesada, layout_fisico, errors
 
 
 def _demo_run():

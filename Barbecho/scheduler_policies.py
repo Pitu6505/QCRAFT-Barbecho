@@ -1,4 +1,8 @@
 import json
+import math
+from platform import machine
+from platform import machine
+import queue
 import requests
 from flask import request
 import re
@@ -102,7 +106,7 @@ class SchedulerPolicies:
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
-        self.max_qubits = 266 #254 o 266
+        self.max_qubits = 312 #254 o 266
         self.max_qubits_send = 156 #127 o 133
         self.machine_ibm = 'ibm_fez' # ibm_brisbane o ibm_torino
         self.machine_aws = 'local'
@@ -118,7 +122,8 @@ class SchedulerPolicies:
                         'MaxPD' : Policy(self.mainPD, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
                         'time_maquinas' : Policy(self.send_maquinas, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
                         'batch' : Policy(self.send_individual_batches, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
-                        'Islas_Cuanticas_Edges': Policy(self.send_graph_placement_edges, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm)}
+                        'Islas_Cuanticas_Edges': Policy(self.send_graph_placement_edges, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm),
+                        'barbecho': Policy(self.send_combined_graph_horizontal, self.max_qubits, self.time_limit_seconds, self.executeCircuit, self.machine_aws, self.machine_ibm)}
 
         self.islas_cuanticas_lock = Lock()
         
@@ -191,7 +196,7 @@ class SchedulerPolicies:
         if not self.services[service_name].timers[provider].is_alive():
             self.services[service_name].timers[provider].start()
         n_qubits = sum(item[1] for item in self.services[service_name].queues[provider])
-        if n_qubits >= 254 and (service_name != 'time_maquinas' and service_name != 'MaxML' and service_name != 'MaxPD' and service_name != 'time'): #es 127
+        if n_qubits >= 254 and (service_name != 'time_maquinas' and service_name != 'MaxML' and service_name != 'MaxPD' and service_name != 'time' and service_name != 'barbecho'): #es 127
            self.services[service_name].timers[provider].execute_and_reset()
         return 'Data received', 200
         
@@ -384,6 +389,212 @@ class SchedulerPolicies:
         code.append("return circuit")
 
 
+    #ESTO ESTA BIEN
+    # def send_combined_graph_horizontal(self, queue, max_qubits, provider, executeCircuit, machine):
+    #     """
+    #     Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
+    #     Llena la máquina según conectividad, y cuando se agotan los qubits, añade una capa
+    #     temporal (barrera + reset) y vuelve a empezar sobre los mismos qubits físicos.
+    #     """
+    #     if not queue:
+    #         print("\n✅ No hay circuitos en la cola.")
+    #         return
+
+    #     print(f"🚀 Iniciando política Híbrida (Grafo + Horizontal) en {machine}")
+        
+    #     # 1. Preparación de variables de control
+    #     remaining_queue = list(queue)
+    #     all_batches_layout = [] # Guardará la info de cada "capa" horizontal
+    #     circuitos_para_ejecutar = []
+    #     total_qubits_acumulados = 0
+    #     LIMITE_GLOBAL_QUBITS = 70000 # Límite de la política 'send' original
+        
+    #     iteracion_horizontal = 0
+    #     backend_name = self.machine_ibm if provider == 'ibm' else None
+
+    #     # Mientras queden circuitos y no superemos el límite de memoria del Job
+    #     while remaining_queue and total_qubits_acumulados < LIMITE_GLOBAL_QUBITS:
+    #         iteracion_horizontal += 1
+            
+    #         # Formatear lo que queda en la cola para el algoritmo de grafos
+    #         formatted_queue = CircuitQueue()
+    #         for item in remaining_queue:
+    #             edges = self.extract_edges_from_circuit(item[0])
+    #             formatted_queue.add_circuit(circuit_id=str(item[3]), required_qubits=item[1], edges=edges)
+
+    #         # 2. Llamar al colocador (select_best_qubits_persistent)
+    #         # Este nos dirá qué cabe en esta "capa" física de la máquina
+    #         cola_procesada, layout_fisico, _ = select_best_qubits_persistent(
+    #             circuits=formatted_queue,
+    #             provider=provider,
+    #             backend_name=backend_name,
+    #             noise_threshold=None,
+    #             max_time_seconds=30
+    #         )
+
+    #         if not cola_procesada:
+    #             break # No cabe ni un circuito más o error de colocación
+
+    #         # 3. Identificar circuitos seleccionados en esta capa
+    #         seleccionados_ids = {str(s['id']) for s in cola_procesada}
+            
+    #         capa_actual = []
+    #         for item in list(remaining_queue):
+    #             if str(item[3]) in seleccionados_ids:
+    #                 capa_actual.append(item)
+    #                 circuitos_para_ejecutar.append(item)
+    #                 total_qubits_acumulados += item[1]
+    #                 remaining_queue.remove(item) # Los quitamos de la cola general
+
+    #         # Guardamos el layout de esta capa específica
+    #         all_batches_layout.append({
+    #             'iteracion_temporal': iteracion_horizontal,
+    #             'layout': layout_fisico,
+    #             'circuitos': [item[4] for item in capa_actual]
+    #         })
+
+    #         print(f"📦 Capa {iteracion_horizontal}: Colocados {len(capa_actual)} circuitos.")
+
+    #     # 4. Ejecución (Fuera del bucle while para que sea un solo JOB)
+    #     if circuitos_para_ejecutar:
+    #         print(f"⚡ Ejecutando Job compuesto por {len(all_batches_layout)} capas horizontales.")
+            
+    #         code, qb = [], []
+    #         shotsUsr = [item[2] for item in circuitos_para_ejecutar]
+            
+    #         # NOTA: Tu método create_circuit debe estar preparado para recibir 
+    #         # la lista de layouts o manejar las barreras/resets internamente 
+    #         # basado en la estructura de capas.
+            
+    #         # self.create_circuit_horizontal(all_batches_layout, code, qb, provider)
+            
+    #         data = {"code": code}
+    #         # executeCircuit(json.dumps(data), qb, shotsUsr, provider, circuitos_para_ejecutar, machine, all_batches_layout)
+            
+    #         # Actualizamos la cola original (pasada por referencia)
+    #         queue[:] = remaining_queue
+            
+    #         # Log de resultados
+    #         self.log_hibrido_resultados(all_batches_layout, total_qubits_acumulados)
+
+    #     else:
+    #         print("⚠️ No se pudo colocar ningún circuito.")
+
+    def send_combined_graph_horizontal(self, queue, max_qubits, provider, executeCircuit, machine):
+        """
+        Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
+        Llena la máquina según conectividad, y cuando se agotan los qubits, añade una capa
+        temporal (barrera + reset) y vuelve a empezar sobre los mismos qubits físicos.
+        """
+
+        if not queue:
+            print("\n✅ No hay circuitos en la cola.")
+            return
+
+        print(f"🚀 Iniciando política Híbrida (Grafo + Horizontal) en {machine}")
+        
+        # 1️⃣ Variables de control
+        remaining_queue = list(queue)
+        all_batches_layout = []
+        circuitos_para_ejecutar = []
+        total_qubits_acumulados = 0
+        LIMITE_GLOBAL_QUBITS = 70000
+        
+        iteracion_horizontal = 0
+        backend_name = self.machine_ibm if provider == 'ibm' else None
+
+        # 🔒 Distancia congelada para todo el Job
+        distancia_fija = None
+
+        # Mientras queden circuitos y no superemos el límite global
+        while remaining_queue and total_qubits_acumulados < LIMITE_GLOBAL_QUBITS:
+            iteracion_horizontal += 1
+
+            # 🔒 Congelar distancia solo en la primera iteración
+            if distancia_fija is None:
+                tamanos_iniciales = [item[1] for item in remaining_queue]
+                media = sum(tamanos_iniciales) / len(tamanos_iniciales)
+                distancia_fija = math.ceil(media)
+                print(f"🔒 Distancia congelada para todo el Job: {distancia_fija}")
+
+            # 2️⃣ Formatear cola restante
+            formatted_queue = CircuitQueue()
+            for item in remaining_queue:
+                edges = self.extract_edges_from_circuit(item[0])
+                formatted_queue.add_circuit(
+                    circuit_id=str(item[3]),
+                    required_qubits=item[1],
+                    edges=edges
+                )
+
+            # 3️⃣ Llamar al colocador con distancia fija
+            cola_procesada, layout_fisico, _ = select_best_qubits_persistent(
+                circuits=formatted_queue,
+                provider=provider,
+                backend_name=backend_name,
+                noise_threshold=None,
+                max_time_seconds=30,
+                fixed_distance=distancia_fija   # 👈 AQUÍ ESTÁ LA CLAVE
+            )
+
+            if not cola_procesada:
+                break
+
+            # 4️⃣ Identificar circuitos seleccionados
+            seleccionados_ids = {str(s['id']) for s in cola_procesada}
+            
+            capa_actual = []
+
+            for item in list(remaining_queue):
+                if str(item[3]) in seleccionados_ids:
+                    capa_actual.append(item)
+                    circuitos_para_ejecutar.append(item)
+                    total_qubits_acumulados += item[1]
+                    remaining_queue.remove(item)
+
+            # Guardamos metadata de esta capa
+            all_batches_layout.append({
+                'iteracion_temporal': iteracion_horizontal,
+                'layout': layout_fisico,
+                'circuitos': [item[4] for item in capa_actual],
+                'distancia_usada': distancia_fija
+            })
+
+            print(f"📦 Capa {iteracion_horizontal}: Colocados {len(capa_actual)} circuitos.")
+
+        # 5️⃣ EJECUCIÓN FINAL (un solo JOB)
+        if circuitos_para_ejecutar:
+
+            print(f"⚡ Ejecutando Job compuesto por {len(all_batches_layout)} capas horizontales.")
+            
+            code, qb = [], []
+            shotsUsr = [item[2] for item in circuitos_para_ejecutar]
+
+            # Tu constructor de circuito debe manejar las capas + barreras + reset
+            # self.create_circuit_horizontal(all_batches_layout, code, qb, provider)
+
+            data = {"code": code}
+            # executeCircuit(json.dumps(data), qb, shotsUsr, provider, circuitos_para_ejecutar, machine, all_batches_layout)
+
+            # Actualizamos cola original
+            queue[:] = remaining_queue
+
+            # Log
+            self.log_hibrido_resultados(all_batches_layout, total_qubits_acumulados)
+
+        else:
+            print("⚠️ No se pudo colocar ningún circuito.")
+
+    def log_hibrido_resultados(self, layouts, total_qb):
+        os.makedirs("./resultados", exist_ok=True)
+        with open("./resultados/SalidaHibrida.txt", 'a') as f:
+            f.write(f"\n--- Nueva Ejecución Híbrida ---\n")
+            f.write(f"Total Qubits: {total_qb}\n")
+            for capa in layouts:
+                f.write(f"Capa {capa['iteracion_temporal']} | Layout: {capa['layout']} | Circuitos: {capa['circuitos']}\n")
+
+    
+    
    
     def send(self, queue: list, max_qubits: int, provider: str, executeCircuit: Callable, machine: str) -> None:
         """
@@ -604,6 +815,9 @@ class SchedulerPolicies:
             elapsed_time = end_time - start_time
             print(f"Tiempo de ejecución de send_edges: {elapsed_time:.6f} segundos")
 
+            # Crear carpeta de resultados si no existe
+            os.makedirs("./resultados", exist_ok=True)
+            
             with open("./resultados/SalidaIslasCuanticasEdges.txt", 'a') as file:
                 file.write("Cola Formateada con edges:")
                 file.write(str(formatted_queue))
