@@ -20,6 +20,7 @@ import threading
 
 
 from qiskit_ibm_provider import IBMProvider
+from qiskit.transpiler.exceptions import TranspilerError
 import json
 
 class executeCircuitIBM:
@@ -71,12 +72,14 @@ class executeCircuitIBM:
                 qiskit.QuantumCircuit: The circuit object.
             """
             # Split the code into lines
+            current_line = ""
             try:
                 lines = code_str.strip().split('\n')
                 # Initialize empty variables for registers and circuit
                 qreg = creg = circuit = None
                 # Process each line
                 for line in lines:
+                    current_line = line
                     if 'import' not in line:
                         if "QuantumRegister" in line:
                             qreg_name = line.split('=')[0].strip()
@@ -97,6 +100,7 @@ class executeCircuitIBM:
                             # Parse gate operations
                             gate_name = operation.split('circuit.')[1].split('(')[0]
                             args = re.split(r'\s*,\s*', operation.split('(', 1)[1].rsplit(')', 1)[0].strip())
+                            clean_args = [arg for arg in args if arg.strip() != '']
                             if gate_name == "measure":
                                 qubit = qreg[int(args[0].split('[')[1].strip(']').split('+')[0]) + int(args[0].split('[')[1].strip(']').split('+')[1].strip(') ')) if '+' in args[0] else int(args[0].split('[')[1].strip(']'))]
                                 cbit = creg[int(args[1].split('[')[1].strip(']').split('+')[0]) + int(args[1].split('[')[1].strip(']').split('+')[1].strip(') ')) if '+' in args[1] else int(args[1].split('[')[1].strip(']'))]
@@ -106,9 +110,13 @@ class executeCircuitIBM:
                                     circuit.barrier()
                                 elif args[0] == qreg.name: #For barrier(qreg)
                                     circuit.barrier(*qreg)
+                                elif 'range(' in args[0]: #For barrier(range(...))
+                                    circuit.barrier()
                                 else: #For barrier(qreg[0], qreg[1], ...)
                                     qubits = [qreg[int(arg.split('[')[1].strip(']').split('+')[0]) + int(arg.split('[')[1].strip(']').split('+')[1].strip(') ')) if '+' in arg else int(arg.split('[')[1].strip(']'))] for arg in args if '[' in arg]
                                     circuit.barrier(qubits)
+                            elif gate_name == "measure_all":
+                                circuit.measure_all()
                             elif gate_name == "append":
                                 gate_type = args[0]
                                 qubits = [qreg[int(re.search(r'\[(\d+)\]', arg).group(1))] for arg in args[1:] if '[' in arg]
@@ -128,15 +136,15 @@ class executeCircuitIBM:
                                     circuit.append(mcx, control_qubits + [target_qubit])
                                     circuit.h(target_qubit)
                             else:
-                                qubits = [qreg[int(arg.split('[')[1].strip(']').split('+')[0]) + int(arg.split('[')[1].strip(']').split('+')[1].strip(') ')) if '+' in arg else int(arg.split('[')[1].strip(']'))] for arg in args if '[' in arg]
-                                params = [eval(arg, {"__builtins__": None, "np": np}, {}) for param_str in args if '[' not in param_str for arg in param_str.split(',')] #If here, check if the circuit has pi instead of np.pi. Change pi to np.pi and it should work
+                                qubits = [qreg[int(arg.split('[')[1].strip(']').split('+')[0]) + int(arg.split('[')[1].strip(']').split('+')[1].strip(') ')) if '+' in arg else int(arg.split('[')[1].strip(']'))] for arg in clean_args if '[' in arg]
+                                params = [eval(arg, {"__builtins__": None, "np": np}, {}) for param_str in clean_args if '[' not in param_str for arg in param_str.split(',') if arg.strip() != ''] #If here, check if the circuit has pi instead of np.pi. Change pi to np.pi and it should work
                                 gate_operation = getattr(circuit, gate_name)(*params, *qubits) if params else getattr(circuit, gate_name)(*qubits)
                                 if condition:
                                     creg_name, val = condition.split(')')[0].split(',')
                                     val = int(val.strip())
                                     gate_operation.c_if(creg, val)
             except Exception as e:
-                raise ValueError("Invalid circuit code")
+                raise ValueError(f"Invalid circuit code. line='{current_line}'. error={e}")
 
             return circuit
 
@@ -209,7 +217,7 @@ class executeCircuitIBM:
         counts = result[0].data.creg_c.get_counts()
         return counts
 
-    def runIBM_save(self, machine:str, circuit:QuantumCircuit, shots:int,users:list, qubit_number:list, circuit_names:list, initial_layout:list|None=None) -> dict:
+    def runIBM_save(self, machine:str, circuit:QuantumCircuit, shots:int,users:list, qubit_number:list, circuit_names:list, initial_layout:list|None=None, preserve_layout:bool=False) -> dict:
         """
         Executes a circuit in the IBM cloud and saves the task id if the machine crashes.
 
@@ -221,6 +229,7 @@ class executeCircuitIBM:
             qubit_number (list): The number of qubits of the circuit per user.        
             circuit_names (list): The name of the circuit that was executed per user.
             initial_layout (list|None): Mapeo inicial virtual->físico para transpilar.
+            preserve_layout (bool): Si es True, evita que transpile remapee qubits.
 
         Returns:
             dict: The results of the circuit execution.
@@ -243,9 +252,52 @@ class executeCircuitIBM:
             sampler.options.execution.rep_delay = backend.configuration().rep_delay_range[1] # set it to the maximum of the machine instead -> config.rep_delay_range[1]
             with self.transpile_lock:
                 if initial_layout:
-                    qc_basis = transpile(circuit, backend=backend, initial_layout=initial_layout)
+                    if preserve_layout:
+                        try:
+                            qc_basis = transpile(
+                                circuit,
+                                backend=backend,
+                                initial_layout=initial_layout,
+                                layout_method='trivial',
+                                routing_method='none',
+                                optimization_level=0,
+                            )
+                        except TranspilerError as te:
+                            print(f"⚠️ Strict layout transpile failed, enabling routing fallback: {te}")
+                            qc_basis = transpile(
+                                circuit,
+                                backend=backend,
+                                initial_layout=initial_layout,
+                                layout_method='trivial',
+                                routing_method='sabre',
+                                optimization_level=1,
+                            )
+                    else:
+                        qc_basis = transpile(circuit, backend=backend, initial_layout=initial_layout)
                 else:
-                    qc_basis = transpile(circuit, backend=backend)
+                    if preserve_layout:
+                        identity_layout = list(range(circuit.num_qubits))
+                        try:
+                            qc_basis = transpile(
+                                circuit,
+                                backend=backend,
+                                initial_layout=identity_layout,
+                                layout_method='trivial',
+                                routing_method='none',
+                                optimization_level=0,
+                            )
+                        except TranspilerError as te:
+                            print(f"⚠️ Strict layout transpile failed, enabling routing fallback: {te}")
+                            qc_basis = transpile(
+                                circuit,
+                                backend=backend,
+                                initial_layout=identity_layout,
+                                layout_method='trivial',
+                                routing_method='sabre',
+                                optimization_level=1,
+                            )
+                    else:
+                        qc_basis = transpile(circuit, backend=backend)
             x = int(shots)
 
             while True:

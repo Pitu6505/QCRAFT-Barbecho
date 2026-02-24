@@ -33,6 +33,25 @@ import subprocess
 
 import sys
 
+
+    # LO QUE HACE BARBECHO
+    #Cola original
+    #     ↓
+    # Congelar distancia
+    #     ↓
+    # Formatear cola → CircuitQueue
+    #     ↓
+    # Llamar al colocador persistente
+    #     ↓
+    # Extraer circuitos colocados
+    #     ↓
+    # Crear nueva capa horizontal
+    #     ↓
+    # Repetir hasta llenar o vaciar
+    #     ↓
+    # Ejecutar Job final
+
+    
 CARPETA_SALIDAS = os.path.join("Barbecho", "salidas")
 class Policy:
     """
@@ -102,13 +121,13 @@ class SchedulerPolicies:
         self.iteracion_tiempo = 0
         self.iteracion_ML = 0
         self.app = app
-        self.time_limit_seconds = 20#300 #estaba en 600
+        self.time_limit_seconds = 10#300 #estaba en 600
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
         self.max_qubits = 312 #254 o 266
         self.max_qubits_send = 156 #127 o 133
-        self.machine_ibm = 'ibm_fez' # ibm_brisbane o ibm_torino
+        self.machine_ibm = 'ibm_marrakesh' # ibm_brisbane o ibm_torino
         self.machine_aws = 'local'
         
 
@@ -216,66 +235,161 @@ class SchedulerPolicies:
         return initial_layout if initial_layout else None
 
 
-    def executeCircuit(self,data:dict,qb:list,shots:list,provider:str,urls:list, machine:str, layout_fisico:dict|None=None) -> None: #Data is the composed circuit to execute, qb is the number of qubits per circuit, shots is the number of shots per circut, provider is the provider of the circuit, urls is the array with data of each circuit (url, num_qubits, shots, user, circuit_name)
-        """
-        Executes the circuit in the selected provider
+#     def executeCircuit(self,data:dict,qb:list,shots:list,provider:str,urls:list, machine:str, layout_fisico:dict|None=None) -> None: #Data is the composed circuit to execute, qb is the number of qubits per circuit, shots is the number of shots per circut, provider is the provider of the circuit, urls is the array with data of each circuit (url, num_qubits, shots, user, circuit_name)
+#         """
+#         Executes the circuit in the selected provider
 
-        Args:
-            data (dict): The data of the circuit to execute            
-            qb (list): The number of qubits per circuit            
-            shots (list): The number of shots per circuit
-            provider (str): The provider of the circuit            
-            urls (list): The data of each circuit            
-            machine (str): The machine to execute the circuit
+#         Args:
+#             data (dict): The data of the circuit to execute            
+#             qb (list): The number of qubits per circuit            
+#             shots (list): The number of shots per circuit
+#             provider (str): The provider of the circuit            
+#             urls (list): The data of each circuit            
+#             machine (str): The machine to execute the circuit
 
-        Raises:
-            Exception: If an error occurs during the execution of the circuit
-        """
+#         Raises:
+#             Exception: If an error occurs during the execution of the circuit
+#         """
 
-        circuit = ''
-        for data in json.loads(data)['code']:
-            circuit = circuit + data + '\n'
+#         circuit = ''
+#         for data in json.loads(data)['code']:
+#             circuit = circuit + data + '\n'
         
-        loc = {}
-        if provider == 'ibm':
-            loc['circuit'] = self.executeCircuitIBM.code_to_circuit_ibm(circuit)
-        else:
-            loc['circuit'] = code_to_circuit_aws(circuit)
+#         loc = {}
+#         if provider == 'ibm':
+#             loc['circuit'] = self.executeCircuitIBM.code_to_circuit_ibm(circuit)
+#         else:
+#             loc['circuit'] = code_to_circuit_aws(circuit)
 
 
-        #circuit = 'def circ():\n'
-        #f = json.loads(data)
-        #for line in f['code']: #Construir el circuito según lo obtenido del traductor
-        #    circuit = circuit + '\t' + line + '\n'
-#
-        #circuit = circuit + 'circuit = circ()'
-#
-        #print(circuit)
-#
-        #loc = {}
-        #exec(circuit,globals(),loc) #Recuperar el objeto circuito que se obtiene, cuidado porque si el código del circuito no está controlado, esto es muy peligroso
-        # Aquí se podría comprobar la mejor máquina para ejecutar el circuito
-        print('_____________________________________________________________________')
-        #print(loc['circuit'])
-        print('_____________________________________________________________________')
+#         #circuit = 'def circ():\n'
+#         #f = json.loads(data)
+#         #for line in f['code']: #Construir el circuito según lo obtenido del traductor
+#         #    circuit = circuit + '\t' + line + '\n'
+# #
+#         #circuit = circuit + 'circuit = circ()'
+# #
+#         #print(circuit)
+# #
+#         #loc = {}
+#         #exec(circuit,globals(),loc) #Recuperar el objeto circuito que se obtiene, cuidado porque si el código del circuito no está controlado, esto es muy peligroso
+#         # Aquí se podría comprobar la mejor máquina para ejecutar el circuito
+#         print('_____________________________________________________________________')
+#         #print(loc['circuit'])
+#         print('_____________________________________________________________________')
+#         try:
+#             if provider == 'ibm':
+#                 initial_layout = self._compose_initial_layout(urls, layout_fisico)
+#                 #backend = least_busy_backend_ibm(sum(qb))
+#                 # TODO escoger el backend más adecuado para el circuito
+#                 #counts = runIBM(self.machine_ibm,loc['circuit'],max(shots)) #Ejecutar el circuito y obtener el resultado
+#                 counts = self.executeCircuitIBM.runIBM_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls], initial_layout=initial_layout) #Ejecutar el circuito y obtener el resultado
+#             else:
+#                 counts = runAWS_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls],'') #Ejecutar el circuito y obtener el resultado
+#         except Exception as e:
+#             print(f"Error executing circuit: {e}")
+
+#         #print(counts.items())
+
+#         data = {"counts": counts, "shots": shots, "provider": provider, "qb": qb, "users": [url[3] for url in urls], "circuit_names": [url[4] for url in urls]}
+
+#         requests.post(self.unscheduler, json=data)
+
+
+    def executeCircuit(
+    self,
+    data: dict,
+    qb: list,
+    shots: list,
+    provider: str,
+    urls: list,
+    machine: str,
+    layout_fisico: dict | list | None = None
+) -> None:
+
+        """
+        Executes the circuit in the selected provider.
+        Compatible with both vertical and horizontal batching.
+        """
+
+        # -------------------------------
+        # 1️⃣ Reconstrucción del código
+        # -------------------------------
+        circuit_code = ''
+        for line in json.loads(data)['code']:
+            circuit_code += line + '\n'
+
+        # -------------------------------
+        # 2️⃣ Conversión a objeto circuito
+        # -------------------------------
         try:
             if provider == 'ibm':
-                initial_layout = self._compose_initial_layout(urls, layout_fisico)
-                #backend = least_busy_backend_ibm(sum(qb))
-                # TODO escoger el backend más adecuado para el circuito
-                #counts = runIBM(self.machine_ibm,loc['circuit'],max(shots)) #Ejecutar el circuito y obtener el resultado
-                counts = self.executeCircuitIBM.runIBM_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls], initial_layout=initial_layout) #Ejecutar el circuito y obtener el resultado
+                circuit_obj = self.executeCircuitIBM.code_to_circuit_ibm(circuit_code)
             else:
-                counts = runAWS_save(machine,loc['circuit'],max(shots),[url[3] for url in urls],qb,[url[4] for url in urls],'') #Ejecutar el circuito y obtener el resultado
+                circuit_obj = code_to_circuit_aws(circuit_code)
         except Exception as e:
-            print(f"Error executing circuit: {e}")
+            print(f"❌ Error parsing circuit code: {e}")
+            return   # 👈 IMPORTANTE: salir si falla aquí
 
-        #print(counts.items())
+        print('_____________________________________________________________________')
+        print('_____________________________________________________________________')
 
-        data = {"counts": counts, "shots": shots, "provider": provider, "qb": qb, "users": [url[3] for url in urls], "circuit_names": [url[4] for url in urls]}
+        # -------------------------------
+        # 3️⃣ Ejecución real
+        # -------------------------------
+        try:
+            if provider == 'ibm':
 
-        requests.post(self.unscheduler, json=data)
+                # 👉 Solo construir initial_layout si existe y es dict
+                if layout_fisico is not None and isinstance(layout_fisico, dict):
+                    initial_layout = self._compose_initial_layout(urls, layout_fisico)
+                    preserve_layout = initial_layout is not None
+                else:
+                    initial_layout = list(range(circuit_obj.num_qubits))
+                    preserve_layout = True
 
+                counts = self.executeCircuitIBM.runIBM_save(
+                    machine,
+                    circuit_obj,
+                    max(shots),
+                    [url[3] for url in urls],  # users
+                    qb,
+                    [url[4] for url in urls],  # circuit names
+                    initial_layout=initial_layout,
+                    preserve_layout=preserve_layout
+                )
+
+            else:
+                counts = runAWS_save(
+                    machine,
+                    circuit_obj,
+                    max(shots),
+                    [url[3] for url in urls],
+                    qb,
+                    [url[4] for url in urls],
+                    ''
+                )
+
+        except Exception as e:
+            print(f"❌ Error executing circuit on provider: {e}")
+            return   # 👈 MUY IMPORTANTE: evitar usar counts si falla
+
+        # -------------------------------
+        # 4️⃣ Envío al unscheduler
+        # -------------------------------
+        result_payload = {
+            "counts": counts,
+            "shots": shots,
+            "provider": provider,
+            "qb": qb,
+            "users": [url[3] for url in urls],
+            "circuit_names": [url[4] for url in urls]
+        }
+
+        try:
+            requests.post(self.unscheduler, json=result_payload)
+        except Exception as e:
+            print(f"⚠️ Error sending results to unscheduler: {e}")
 
     def most_repetitive(self, array:list) -> int: #Check the most repetitive element in an array and if there are more than one, return the smallest
         """
@@ -389,6 +503,427 @@ class SchedulerPolicies:
         code.append("return circuit")
 
 
+    # def create_circuit_horizontal(self, all_batches_layout, code, qb, provider):
+    #     if not all_batches_layout:
+    #         return
+
+    #     print("🧱 Construyendo circuito horizontal (Mapping de Grafos + Capas Temporales)...")
+
+    #     # 1️⃣ Calcular qubits físicos totales necesarios (el máximo índice usado en el chip)
+    #     max_physical_qubit = 0
+    #     for capa in all_batches_layout:
+    #         layout = capa["layout"]
+    #         for phys_qubits in layout.values():
+    #             max_physical_qubit = max(max_physical_qubit, max(phys_qubits))
+
+    #     total_physical_qubits = max_physical_qubit + 1
+    #     qb.append(total_physical_qubits)
+
+    #     # 2️⃣ Preámbulo (Idéntico a tu política anterior para mantener compatibilidad)
+    #     if provider == 'ibm':
+    #         code.append("from qiskit import QuantumRegister, ClassicalRegister, QuantumCircuit")
+    #         code.append("from qiskit.circuit.library import MCXGate, MCMT, XGate, YGate, ZGate")
+    #         code.append("import numpy as np")
+    #         code.append("from numpy import pi")
+    #         code.append(f"qreg_q = QuantumRegister({total_physical_qubits}, 'q')")
+    #         code.append(f"creg_c = ClassicalRegister({total_physical_qubits}, 'c')")
+    #         code.append("circuit = QuantumCircuit(qreg_q, creg_c)")
+
+    #     # 3️⃣ Construcción por capas temporales
+    #     for idx, capa in enumerate(all_batches_layout):
+    #         print(f"📦 Procesando capa horizontal {idx+1}")
+    #         layout = capa["layout"]
+    #         circuitos_info = capa["circuitos_info"]
+
+    #         for circuit_id in layout:
+    #             if circuit_id not in circuitos_info: continue
+                
+    #             physical_mapping = layout[circuit_id]
+    #             raw_circuit_code = circuitos_info[circuit_id]["code"]
+    #             num_logical_qb = circuitos_info[circuit_id]["qb"]
+                
+    #             # Dividir código en líneas
+    #             lines = raw_circuit_code.split('\n')
+
+    #             for line in lines:
+    #                 # Omitir definiciones que ya están en el preámbulo o que romperían el flujo
+    #                 if any(x in line for x in ["QuantumCircuit", "import", "return", "ClassicalRegister", "QuantumRegister", "qc ="]):
+    #                     continue
+                    
+    #                 new_line = line
+    #                 # Mapeo de qubits lógicos -> físicos mediante Regex
+    #                 # Buscamos patrones como qreg_q[0] o q[0] y los convertimos a qreg_q[Fisico]
+    #                 indices_logicos = sorted(range(num_logical_qb), reverse=True)
+    #                 for l_idx in indices_logicos:
+    #                     p_idx = physical_mapping[l_idx]
+    #                     # Detecta cualquier variable seguida de [indice]
+    #                     pattern = r'[a-zA-Z_][a-zA-Z0-9_]*\s*\[\s*' + str(l_idx) + r'\s*\]'
+    #                     new_line = re.sub(pattern, f"qreg_q[{p_idx}]", new_line)
+
+    #                 # Omitimos medidas individuales (las haremos globales por capa o al final)
+    #                 if "measure" in new_line.lower():
+    #                     continue
+
+    #                 if new_line.strip():
+    #                     code.append(new_line)
+
+    #         # 4️⃣ Sincronización: Barrier + Reset (Solo si hay más capas después)
+    #         if idx < len(all_batches_layout) - 1:
+    #             code.append("circuit.barrier()")
+    #             # Reseteamos solo los qubits que se usaron en esta capa para eficiencia, o todos:
+    #             for q_idx in range(total_physical_qubits):
+    #                 code.append(f"circuit.reset(qreg_q[{q_idx}])")
+
+    #     # 5️⃣ Medición final global
+    #     code.append("circuit.barrier()")
+    #     for i in range(total_physical_qubits):
+    #         code.append(f"circuit.measure(qreg_q[{i}], creg_c[{i}])")
+
+    #     code.append("return circuit")
+    def create_circuit_horizontal(self, all_batches_layout, code, qb, provider):
+        if not all_batches_layout:
+            return
+
+        print("🧱 Construyendo circuito horizontal (Circuito -> Measure -> Barrier -> Reset)...")
+
+        # 1️⃣ Calcular qubits físicos totales
+        max_physical_qubit = 0
+        for capa in all_batches_layout:
+            layout = capa["layout"]
+            for phys_qubits in layout.values():
+                max_physical_qubit = max(max_physical_qubit, max(phys_qubits))
+
+        total_physical_qubits = max_physical_qubit + 1
+        qb.append(total_physical_qubits)
+
+        # 2️⃣ Preámbulo IBM
+        if provider == 'ibm':
+            code.insert(0, "circuit = QuantumCircuit(qreg_q, creg_c)")
+            code.insert(0, f"creg_c = ClassicalRegister({total_physical_qubits}, 'c')")
+            code.insert(0, f"qreg_q = QuantumRegister({total_physical_qubits}, 'q')")
+            code.insert(0, "from qiskit import QuantumRegister, ClassicalRegister, QuantumCircuit")
+            code.insert(0, "from qiskit.circuit.library import MCXGate, MCMT, XGate, YGate, ZGate")
+            code.insert(0, "import numpy as np")
+            code.insert(0, "from numpy import pi")
+
+        # 3️⃣ Construcción por capas
+        for idx, capa in enumerate(all_batches_layout):
+            print(f"📦 Procesando capa horizontal {idx+1}")
+            layout = capa["layout"]
+            circuitos_info = capa["circuitos_info"]
+
+            # --- A: Puertas y Mediciones de los circuitos de la capa ---
+            for circuit_id in layout:
+                if circuit_id not in circuitos_info:
+                    continue
+                    
+                physical_mapping = layout[circuit_id]
+                raw_code = circuitos_info[circuit_id]["code"]
+                num_qb = circuitos_info[circuit_id]["qb"]
+                circuit_lines = raw_code.split('\n')
+
+                for line in circuit_lines:
+                    # Limpieza de definiciones
+                    if any(x in line for x in ["QuantumCircuit", "import", "return", "ClassicalRegister", "QuantumRegister", "qc ="]):
+                        continue
+                    
+                    new_line = line
+                    # Reemplazo de índices lógicos a físicos (tanto para puertas como para medidas)
+                    indices_logicos = sorted(range(num_qb), reverse=True)
+                    for logical_idx in indices_logicos:
+                        phys_idx = physical_mapping[logical_idx]
+                        
+                        # 1. Reemplazar solo registros cuánticos: qreg_q[0] / q[0] -> qreg_q[phys]
+                        pattern_q = r'\b(?:qreg_q|q)\s*\[\s*' + str(logical_idx) + r'\s*\]'
+                        new_line = re.sub(pattern_q, f"qreg_q[{phys_idx}]", new_line)
+                        
+                        # 2. Reemplazar registros clásicos: creg_c[0] / c[0] -> creg_c[phys]
+                        # Esto asegura que el resultado del qubit físico se guarde en su bit correspondiente
+                        pattern_c = r'\b(?:creg_c|c)\s*\[\s*' + str(logical_idx) + r'\s*\]'
+                        new_line = re.sub(pattern_c, f"creg_c[{phys_idx}]", new_line)
+
+                    if new_line.strip():
+                        code.append(new_line)
+
+            # --- B: Barrera y Reset (Sincronización al final de la capa) ---
+            # Añadimos una barrera siempre después de las medidas de la capa para separar del reset
+            code.append("circuit.barrier()")
+            
+            # Si NO es la última capa, reseteamos para poder reutilizar los qubits
+            if idx < len(all_batches_layout) - 1:
+                for q in range(total_physical_qubits):
+                    code.append(f"circuit.reset(qreg_q[{q}])")
+                # Barrera opcional después del reset para mayor claridad visual
+                code.append("circuit.barrier()")
+
+        code.append("return circuit")
+        print("✅ Circuito horizontal construido con mediciones intercaladas.")
+
+
+    def read_circuit(self, circuit_name):
+        """
+        Busca el código del circuito. 
+        Ajusta la lógica según dónde guardes tus archivos .py
+        """
+        # Si circuit_name es una ruta completa o solo el nombre del archivo
+        import os
+        
+        # Ajusta esta ruta a la carpeta donde residen tus archivos de circuitos
+        base_path = "./circuitos_originales" 
+        path = os.path.join(base_path, circuit_name)
+        
+        if not os.path.exists(path):
+            # Intento alternativo si el nombre ya es una ruta
+            path = circuit_name
+
+        try:
+            with open(path, 'r') as f:
+                lines = f.readlines()
+            
+            # Intentamos detectar el número de qubits buscando QuantumRegister o similares
+            num_qb = 0
+            for line in lines:
+                if 'QuantumRegister' in line:
+                    # Extrae el número dentro del paréntesis
+                    match = re.search(r'QuantumRegister\((\d+)', line)
+                    if match:
+                        num_qb = int(match.group(1))
+                        break
+            
+            return lines, num_qb
+        except Exception as e:
+            print(f"❌ Error leyendo el archivo {circuit_name}: {e}")
+            return [], 0
+
+
+    def send_combined_graph_horizontal(self, queue, max_qubits, provider, executeCircuit, machine):
+        """
+        Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
+        Llena la máquina según conectividad, y cuando se agotan los qubits, añade una capa
+        temporal (barrera + reset) y vuelve a empezar sobre los mismos qubits físicos.
+        """
+
+        """
+        Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
+
+        IDEA GENERAL:
+        --------------------------------------------------------
+        1. Usa un algoritmo de colocación basado en grafo físico
+        (select_best_qubits_persistent → place_circuits_persistent).
+        2. Cuando la máquina se llena, no termina el Job:
+        crea una nueva "capa temporal".
+        3. Reutiliza los mismos qubits físicos en la siguiente capa
+        (conceptualmente tras barrier + reset).
+        4. Todo se ejecuta finalmente como un único Job compuesto.
+
+        Combina:
+            - Optimización espacial (topología + ruido)
+            - Persistencia histórica (usage_vector)
+            - Extensión temporal (batching horizontal)
+        """
+
+        if not queue:
+            print("\n✅ No hay circuitos en la cola.")
+            return
+
+        print(f"🚀 Iniciando política Híbrida (Grafo + Horizontal) en {machine}")
+        
+         # ------------------------------------------------------------
+        # 1️⃣ VARIABLES DE CONTROL
+        # ------------------------------------------------------------
+
+        # Copia local para no modificar la cola original hasta el final
+        remaining_queue = list(queue)
+        # Aquí guardamos la estructura completa del Job final
+        # Cada elemento representa una capa horizontal
+        all_batches_layout = []
+        # Lista plana de todos los circuitos que finalmente se ejecutarán
+        circuitos_para_ejecutar = []
+        # Control de recursos globales
+        total_qubits_acumulados = 0
+        LIMITE_GLOBAL_QUBITS = 70000
+        # Contador de capas temporales
+        iteracion_horizontal = 0
+        # Resolver nombre de backend según proveedor
+        backend_name = self.machine_ibm if provider == 'ibm' else None
+
+        # 🔒 Distancia congelada para todo el Job
+        distancia_fija = None
+
+        # Mientras queden circuitos y no superemos el límite global
+        while remaining_queue and total_qubits_acumulados < LIMITE_GLOBAL_QUBITS:
+            iteracion_horizontal += 1
+
+            # --------------------------------------------------------
+            # 🔒 Congelar distancia SOLO en la primera iteración
+            # --------------------------------------------------------
+            # Se basa en la media del tamaño de los circuitos
+            # (heurística estructural).
+            # Esto evita que cambie cuando la cola se reduce.
+            if distancia_fija is None:
+                tamanos_iniciales = [item[1] for item in remaining_queue]
+                media = sum(tamanos_iniciales) / len(tamanos_iniciales)
+                distancia_fija = math.ceil(media)
+                print(f"🔒 Distancia congelada para todo el Job: {distancia_fija}")
+
+            # 2️⃣ Formatear cola restante
+            formatted_queue = CircuitQueue()
+            for item in remaining_queue:
+                edges = self.extract_edges_from_circuit(item[0])
+                formatted_queue.add_circuit(
+                    circuit_id=str(item[3]),
+                    required_qubits=item[1],
+                    edges=edges
+                )
+
+            # --------------------------------------------------------
+            # 3️⃣ LLAMADA AL COLOCADOR PERSISTENTE
+            # --------------------------------------------------------
+            # Este método:
+            #   - Construye el grafo físico del backend
+            #   - Calcula umbral dinámico de ruido
+            #   - Usa usage_vector histórico
+            #   - Aplica restricciones de distancia mínima
+            #   - Ejecuta heurísticas BFS + isomorfismo
+            #
+            # fixed_distance garantiza que la separación mínima
+            # no cambie entre iteraciones.
+            cola_procesada, layout_fisico, _ = select_best_qubits_persistent(
+                circuits=formatted_queue,
+                provider=provider,
+                backend_name=backend_name,
+                noise_threshold=None,
+                max_time_seconds=30,
+                fixed_distance=distancia_fija   # 👈 AQUÍ ESTÁ LA CLAVE
+            )
+
+            if not cola_procesada:
+                break
+
+            # 4️⃣ Identificar circuitos seleccionados
+            seleccionados_ids = {str(s['id']) for s in cola_procesada}
+            
+            capa_actual = []
+
+            for item in list(remaining_queue):
+                if str(item[3]) in seleccionados_ids:
+                    capa_actual.append(item)
+                    circuitos_para_ejecutar.append(item)
+                    total_qubits_acumulados += item[1]
+                    remaining_queue.remove(item)
+
+            # Guardamos metadata de esta capa
+            all_batches_layout.append({
+            'iteracion_temporal': iteracion_horizontal,
+            'layout': layout_fisico,
+            'circuitos_info': {
+                str(item[3]): {  # ID del circuito
+                    "code": item[0], 
+                    "qb": item[1], 
+                    "name": item[4]
+                } for item in capa_actual
+            },
+            'distancia_usada': distancia_fija
+        })
+            
+            print(f"✅ Verificación Capa {iteracion_horizontal}: "
+      f"Circuitos asignados: {list(all_batches_layout[-1]['circuitos_info'].keys())}")
+
+            print(f"📦 Capa {iteracion_horizontal}: Colocados {len(capa_actual)} circuitos.")
+
+        # 5️⃣ EJECUCIÓN FINAL (un solo JOB)
+        if circuitos_para_ejecutar:
+
+            print(f"⚡ Ejecutando Job compuesto por {len(all_batches_layout)} capas horizontales.")
+
+            # Log
+            print("DEBUG: Voy a guardar resultados híbridos")
+            self.log_hibrido_resultados(all_batches_layout, total_qubits_acumulados)
+            
+            code, qb = [], []
+            # Shots asociados a cada circuito
+            shotsUsr = [item[2] for item in circuitos_para_ejecutar]
+
+            # Tu constructor de circuito debe manejar las capas + barreras + reset
+            self.create_circuit_horizontal(all_batches_layout, code, qb, provider)
+
+            data = {"code": code}
+            executeCircuit(json.dumps(data), qb, shotsUsr, provider, circuitos_para_ejecutar, machine, all_batches_layout)
+
+            # Actualizamos la cola original quitando los ejecutados
+            queue[:] = remaining_queue
+
+            
+
+        else:
+            print("⚠️ No se pudo colocar ningún circuito.")
+
+
+    
+
+
+    def log_hibrido_resultados(self, layouts, total_qb):
+        os.makedirs("./resultados", exist_ok=True)
+
+        with open("./resultados/SalidaHibrida.txt", 'a', encoding='utf-8') as f:
+            f.write("\n=====================================================\n")
+            f.write("🚀 Nueva Ejecución Híbrida (Grafo + Horizontal)\n")
+            f.write("=====================================================\n")
+            f.write(f"Total Qubits acumulados: {total_qb}\n")
+            f.write(f"Total Capas Horizontales: {len(layouts)}\n\n")
+
+            for capa in layouts:
+                f.write(f"-----------------------------------------------------\n")
+                f.write(f"Capa Temporal: {capa['iteracion_temporal']}\n")
+                f.write(f"Distancia usada: {capa.get('distancia_usada')}\n")
+
+                circuit_ids = list(capa['circuitos_info'].keys())
+                circuit_names = [
+                    capa['circuitos_info'][cid]['name']
+                    for cid in circuit_ids
+                ]
+
+                f.write(f"Circuitos asignados (IDs): {circuit_ids}\n")
+                f.write(f"Circuitos (nombres): {circuit_names}\n")
+                f.write(f"Layout físico:\n")
+
+                for cid, phys in capa['layout'].items():
+                    f.write(f"   - Circuito {cid} → Qubits físicos {phys}\n")
+
+                f.write("\n")
+
+
+    # def log_hibrido_resultados(self, layouts, total_qb):
+    #     os.makedirs("./resultados", exist_ok=True)
+    #     with open("./resultados/SalidaHibrida.txt", 'a') as f:
+    #         f.write(f"\n--- Nueva Ejecución Híbrida ---\n")
+    #         f.write(f"Total Qubits: {total_qb}\n")
+    #         for capa in layouts:
+    #             # Extraemos los nombres de los circuitos desde 'circuitos_info'
+    #             nombres_circuitos = [info['name'] for info in capa['circuitos_info'].values()]
+                
+    #             f.write(f"Capa {capa['iteracion_temporal']} | "
+    #                     f"Layout: {capa['layout']} | "
+    #                     f"Circuitos: {nombres_circuitos}\n")
+
+    # def log_hibrido_resultados(self, layouts, total_qb):
+    #     os.makedirs("./resultados", exist_ok=True)
+    #     with open("./resultados/SalidaHibrida.txt", 'a') as f:
+    #         f.write(f"\n--- Nueva Ejecución Híbrida ---\n")
+    #         f.write(f"Total Qubits: {total_qb}\n")
+    #         for capa in layouts:
+    #             f.write(f"Capa {capa['iteracion_temporal']} | Layout: {capa['layout']} | Circuitos: {capa['circuitos']}\n")
+
+    # def log_hibrido_resultados(self, layouts, total_qb):
+    #     os.makedirs("./resultados", exist_ok=True)
+    #     with open("./resultados/SalidaHibrida.txt", 'a') as f:
+    #         f.write(f"\n--- Nueva Ejecución Híbrida ---\n")
+    #         f.write(f"Total Qubits: {total_qb}\n")
+    #         for capa in layouts:
+    #             f.write(f"Capa {capa['iteracion_temporal']} | Layout: {capa['layout']} | Circuitos: {capa['circuitos']}\n")
+
+    
+    
     #ESTO ESTA BIEN
     # def send_combined_graph_horizontal(self, queue, max_qubits, provider, executeCircuit, machine):
     #     """
@@ -479,122 +1014,6 @@ class SchedulerPolicies:
 
     #     else:
     #         print("⚠️ No se pudo colocar ningún circuito.")
-
-    def send_combined_graph_horizontal(self, queue, max_qubits, provider, executeCircuit, machine):
-        """
-        Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
-        Llena la máquina según conectividad, y cuando se agotan los qubits, añade una capa
-        temporal (barrera + reset) y vuelve a empezar sobre los mismos qubits físicos.
-        """
-
-        if not queue:
-            print("\n✅ No hay circuitos en la cola.")
-            return
-
-        print(f"🚀 Iniciando política Híbrida (Grafo + Horizontal) en {machine}")
-        
-        # 1️⃣ Variables de control
-        remaining_queue = list(queue)
-        all_batches_layout = []
-        circuitos_para_ejecutar = []
-        total_qubits_acumulados = 0
-        LIMITE_GLOBAL_QUBITS = 70000
-        
-        iteracion_horizontal = 0
-        backend_name = self.machine_ibm if provider == 'ibm' else None
-
-        # 🔒 Distancia congelada para todo el Job
-        distancia_fija = None
-
-        # Mientras queden circuitos y no superemos el límite global
-        while remaining_queue and total_qubits_acumulados < LIMITE_GLOBAL_QUBITS:
-            iteracion_horizontal += 1
-
-            # 🔒 Congelar distancia solo en la primera iteración
-            if distancia_fija is None:
-                tamanos_iniciales = [item[1] for item in remaining_queue]
-                media = sum(tamanos_iniciales) / len(tamanos_iniciales)
-                distancia_fija = math.ceil(media)
-                print(f"🔒 Distancia congelada para todo el Job: {distancia_fija}")
-
-            # 2️⃣ Formatear cola restante
-            formatted_queue = CircuitQueue()
-            for item in remaining_queue:
-                edges = self.extract_edges_from_circuit(item[0])
-                formatted_queue.add_circuit(
-                    circuit_id=str(item[3]),
-                    required_qubits=item[1],
-                    edges=edges
-                )
-
-            # 3️⃣ Llamar al colocador con distancia fija
-            cola_procesada, layout_fisico, _ = select_best_qubits_persistent(
-                circuits=formatted_queue,
-                provider=provider,
-                backend_name=backend_name,
-                noise_threshold=None,
-                max_time_seconds=30,
-                fixed_distance=distancia_fija   # 👈 AQUÍ ESTÁ LA CLAVE
-            )
-
-            if not cola_procesada:
-                break
-
-            # 4️⃣ Identificar circuitos seleccionados
-            seleccionados_ids = {str(s['id']) for s in cola_procesada}
-            
-            capa_actual = []
-
-            for item in list(remaining_queue):
-                if str(item[3]) in seleccionados_ids:
-                    capa_actual.append(item)
-                    circuitos_para_ejecutar.append(item)
-                    total_qubits_acumulados += item[1]
-                    remaining_queue.remove(item)
-
-            # Guardamos metadata de esta capa
-            all_batches_layout.append({
-                'iteracion_temporal': iteracion_horizontal,
-                'layout': layout_fisico,
-                'circuitos': [item[4] for item in capa_actual],
-                'distancia_usada': distancia_fija
-            })
-
-            print(f"📦 Capa {iteracion_horizontal}: Colocados {len(capa_actual)} circuitos.")
-
-        # 5️⃣ EJECUCIÓN FINAL (un solo JOB)
-        if circuitos_para_ejecutar:
-
-            print(f"⚡ Ejecutando Job compuesto por {len(all_batches_layout)} capas horizontales.")
-            
-            code, qb = [], []
-            shotsUsr = [item[2] for item in circuitos_para_ejecutar]
-
-            # Tu constructor de circuito debe manejar las capas + barreras + reset
-            # self.create_circuit_horizontal(all_batches_layout, code, qb, provider)
-
-            data = {"code": code}
-            # executeCircuit(json.dumps(data), qb, shotsUsr, provider, circuitos_para_ejecutar, machine, all_batches_layout)
-
-            # Actualizamos cola original
-            queue[:] = remaining_queue
-
-            # Log
-            self.log_hibrido_resultados(all_batches_layout, total_qubits_acumulados)
-
-        else:
-            print("⚠️ No se pudo colocar ningún circuito.")
-
-    def log_hibrido_resultados(self, layouts, total_qb):
-        os.makedirs("./resultados", exist_ok=True)
-        with open("./resultados/SalidaHibrida.txt", 'a') as f:
-            f.write(f"\n--- Nueva Ejecución Híbrida ---\n")
-            f.write(f"Total Qubits: {total_qb}\n")
-            for capa in layouts:
-                f.write(f"Capa {capa['iteracion_temporal']} | Layout: {capa['layout']} | Circuitos: {capa['circuitos']}\n")
-
-    
-    
    
     def send(self, queue: list, max_qubits: int, provider: str, executeCircuit: Callable, machine: str) -> None:
         """
