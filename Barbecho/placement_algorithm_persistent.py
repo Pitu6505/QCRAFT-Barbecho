@@ -248,7 +248,7 @@ def bfs_connected_groups(G, start, size, used_nodes, usage_vector, noise_thresho
     return groups
 
 def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibration_id, 
-                              noise_threshold=None, max_time_seconds=60):
+                              noise_threshold=None, max_time_seconds=60, fixed_distance=None,):
     """
     Asigna circuitos usando el vector de visitados para optimizar el uso de qubits.
     
@@ -269,12 +269,23 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
     used_nodes = set()
     start_time = time.time()
     
-    # Calcular umbral dinámico si no se proporciona
+    # ------------------------------------------------------------
+    # 1️⃣ Calcular umbral dinámico de ruido si no se proporciona
+    # ------------------------------------------------------------
+    # Se calcula un percentil del ruido del backend.
+    # Solo se permitirán qubits con ruido <= noise_threshold
     if noise_threshold is None:
         noise_threshold = calculate_dynamic_noise_threshold(G, percentile=Porcentaje_util)
     
-    # Calcular distancia dinámica basada en la cola
-    min_circuit_distance = calculate_dynamic_distance(circuits)
+    # ------------------------------------------------------------
+    # 2️⃣ Calcular distancia mínima entre circuitos
+    # ------------------------------------------------------------
+    # Esta distancia evita que dos grupos asignados queden demasiado cerca.
+    # Puede ser dinámica (media de tamaños) o fija (si se pasa fixed_distance).
+    min_circuit_distance = calculate_dynamic_distance(
+    circuits,
+    fixed_distance=fixed_distance   # 👈 ESTA ES LA CLAVE
+)
     
     print(f"🔧 Configuración:")
     print(f"   - Umbral de ruido: {noise_threshold:.4f}")
@@ -282,6 +293,9 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
     print(f"   - Circuitos en cola: {len(circuits)}")
     print(f"   - Uso actual del backend: {sum(usage_vector)} asignaciones previas")
 
+    # ------------------------------------------------------------
+    # 3️⃣ Bucle principal: recorrer circuitos uno a uno
+    # ------------------------------------------------------------
     for idx, circuit in enumerate(circuits):
         # Verificar timeout global
         elapsed = time.time() - start_time
@@ -293,11 +307,16 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                 errors.append(f"Circuito {cid} no procesado por timeout global")
             break
         
-        # Progress indicator
+        # Indicador de progreso cada 10 circuitos
         if idx % 10 == 0:
             print(f"📊 Progreso: {idx}/{len(circuits)} ({elapsed:.1f}s)")
 
-        # Intentar isomorfismo para circuitos pequeños
+        # --------------------------------------------------------
+        # 4️⃣ Intento rápido: isomorfismo (circuitos pequeños)
+        # --------------------------------------------------------
+        # Si el circuito es pequeño (≤4 qubits), intentamos
+        # encontrar un subgrafo isomorfo exacto en el hardware.
+        # Esto preserva mejor la estructura lógica.
         if 'edges' in circuit and circuit['edges'] and circuit['size'] <= 4:
             logical_graph = nx.Graph()
             logical_graph.add_nodes_from(range(circuit['size']))
@@ -313,29 +332,34 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                 placed.append((circuit['id'], mapping))
                 continue
 
-        # Mapeo estándar con preferencia por qubits menos usados
+        # --------------------------------------------------------
+        # 5️⃣ Manejo de componentes desconectados
+        # --------------------------------------------------------
         size = circuit['size']
         
-        # Manejar componentes desconectados
+      
         if 'edges' in circuit and circuit['edges']:
             logical_graph = nx.Graph()
             logical_graph.add_nodes_from(range(size))
             logical_graph.add_edges_from(circuit['edges'])
             components = list(nx.connected_components(logical_graph))
-            
+
+            # Si el circuito tiene múltiples componentes
             if len(components) > 1:
                 all_assigned = []
                 success = True
                 
                 for component in components:
                     comp_size = len(component)
-                    
+                    # ------------------------------------------------
+                    # Caso A: nodo aislado
+                    # ------------------------------------------------
                     if comp_size == 1:
-                        # Nodo aislado: buscar el menos usado
                         best_node = None
                         best_score = float('inf')
                         
                         for node in G.nodes:
+                            # Restricciones duras
                             if node in used_nodes:
                                 continue
                             if G.nodes[node]['noise'] > noise_threshold:
@@ -343,7 +367,9 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                             if not is_far_enough(G, [node], used_nodes, min_circuit_distance):
                                 continue
                             
-                            # Score: priorizar bajo uso y bajo ruido
+                            # Score jerárquico:
+                            # 1️⃣ Minimizar uso histórico
+                            # 2️⃣ Minimizar ruido
                             score = usage_vector[node] * 1000 + G.nodes[node]['noise']
                             if score < best_score:
                                 best_score = score
@@ -356,6 +382,9 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                         else:
                             success = False
                             break
+                    # ------------------------------------------------
+                    # Caso B: componente conectada (>1)
+                    # ------------------------------------------------
                     else:
                         # Componente conectado
                         best_group = None
@@ -366,10 +395,11 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                             [n for n in G.nodes if n not in used_nodes and G.nodes[n]['noise'] <= noise_threshold],
                             key=lambda n: (usage_vector[n], G.nodes[n]['noise'])
                         )
-                        
+                        # Limitar exploración para evitar explosión combinatoria
                         max_nodes_to_explore = min(10, len(sorted_nodes))
                         
                         for node in sorted_nodes[:max_nodes_to_explore]:
+                            # Buscar grupos conectados vía BFS
                             candidate_groups = bfs_connected_groups(
                                 G, node, comp_size, used_nodes, usage_vector, 
                                 noise_threshold, min_circuit_distance, max_solutions=3
@@ -396,7 +426,7 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                         else:
                             success = False
                             break
-                
+                # Si todas las componentes fueron asignadas correctamente
                 if success:
                     placed.append((circuit['id'], all_assigned))
                     continue
@@ -406,7 +436,9 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
                         used_nodes.discard(node)
                         usage_vector[node] = max(0, usage_vector[node] - 1)
         
-        # Mapeo estándar final
+        # ------------------------------------------------------------
+        # 6️⃣ Mapeo estándar final (fallback general)
+        # ------------------------------------------------------------
         best_group = None
         best_score = float('inf')
 

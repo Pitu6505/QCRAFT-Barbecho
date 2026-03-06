@@ -45,6 +45,40 @@ class executeCircuitIBM:
         # Load your IBM Quantum account
         return self.service
 
+    def _extract_virtual_to_physical_map(self, transpiled_circuit: QuantumCircuit, original_num_qubits: int) -> list:
+        default_map = list(range(original_num_qubits))
+        layout = getattr(transpiled_circuit, "layout", None)
+
+        if layout is None:
+            return default_map
+
+        try:
+            final_index_layout = layout.final_index_layout(filter_ancillas=False)
+            if isinstance(final_index_layout, list) and len(final_index_layout) >= original_num_qubits:
+                return [int(final_index_layout[i]) for i in range(original_num_qubits)]
+        except Exception:
+            pass
+
+        try:
+            initial_layout = getattr(layout, "initial_layout", None)
+            if initial_layout is not None:
+                virtual_bits = initial_layout.get_virtual_bits()
+                resolved = [None] * original_num_qubits
+
+                for virtual_qubit, physical_qubit in virtual_bits.items():
+                    virtual_idx = getattr(virtual_qubit, "_index", getattr(virtual_qubit, "index", None))
+                    if virtual_idx is None:
+                        continue
+                    if 0 <= virtual_idx < original_num_qubits:
+                        resolved[virtual_idx] = int(physical_qubit)
+
+                if all(idx is not None for idx in resolved):
+                    return resolved
+        except Exception:
+            pass
+
+        return default_map
+
     def obtain_machine(self, service:QiskitRuntimeService ,machine:str) -> qiskit.providers.BackendV2:
         """
         Obtains the information of the machine.
@@ -217,132 +251,242 @@ class executeCircuitIBM:
         counts = result[0].data.creg_c.get_counts()
         return counts
 
-    def runIBM_save(self, machine:str, circuit:QuantumCircuit, shots:int,users:list, qubit_number:list, circuit_names:list, initial_layout:list|None=None, preserve_layout:bool=False) -> dict:
-        """
-        Executes a circuit in the IBM cloud and saves the task id if the machine crashes.
+    # def runIBM_save(self, machine:str, circuit:QuantumCircuit, shots:int,users:list, qubit_number:list, circuit_names:list, initial_layout:list|None=None, preserve_layout:bool=False) -> dict:
+    #     """
+    #     Executes a circuit in the IBM cloud and saves the task id if the machine crashes.
 
-        Args:
-            machine (str): The machine to execute the circuit.        
-            circuit (QuantumCircuit): The circuit to execute.        
-            shots (int): The number of shots to execute the circuit.        
-            users (list): The users that executed the circuit.        
-            qubit_number (list): The number of qubits of the circuit per user.        
-            circuit_names (list): The name of the circuit that was executed per user.
-            initial_layout (list|None): Mapeo inicial virtual->físico para transpilar.
-            preserve_layout (bool): Si es True, evita que transpile remapee qubits.
+    #     Args:
+    #         machine (str): The machine to execute the circuit.        
+    #         circuit (QuantumCircuit): The circuit to execute.        
+    #         shots (int): The number of shots to execute the circuit.        
+    #         users (list): The users that executed the circuit.        
+    #         qubit_number (list): The number of qubits of the circuit per user.        
+    #         circuit_names (list): The name of the circuit that was executed per user.
+    #         initial_layout (list|None): Mapeo inicial virtual->físico para transpilar.
+    #         preserve_layout (bool): Si es True, evita que transpile remapee qubits.
 
-        Returns:
-            dict: The results of the circuit execution.
-        """
+    #     Returns:
+    #         dict: The results of the circuit execution.
+    #     """
+
+    #     if machine == "local":
+    #         backend = AerSimulator()
+    #         x = int(shots)
+    #         job = backend.run(circuit, shots=x)
+    #         result = job.result()
+    #         counts = result.get_counts()
+    #         return counts
+    #     else:
+    #         # Load your IBM Quantum account
+
+    #         service = self.service
+    #         backend = service.backend(machine)
+    #         sampler = Sampler(mode=backend)
+    #         #sampler.options.execution.rep_delay = 0.5 # set it to the maximum of the machine instead -> config.rep_delay_range[1]
+    #         sampler.options.execution.rep_delay = backend.configuration().rep_delay_range[1] # set it to the maximum of the machine instead -> config.rep_delay_range[1]
+    #         with self.transpile_lock:
+    #             if initial_layout:
+    #                 if preserve_layout:
+    #                     try:
+    #                         qc_basis = transpile(
+    #                             circuit,
+    #                             backend=backend,
+    #                             initial_layout=initial_layout,
+    #                             layout_method='trivial',
+    #                             routing_method='none',
+    #                             optimization_level=0,
+    #                         )
+    #                     except TranspilerError as te:
+    #                         print("❌ ERROR: El circuito no respeta el layout físico asignado.")
+    #                         raise te
+    #                                             # except TranspilerError as te:
+    #                     #     print(f"⚠️ Strict layout transpile failed, enabling routing fallback: {te}")
+    #                     #     qc_basis = transpile(
+    #                     #         circuit,
+    #                     #         backend=backend,
+    #                     #         initial_layout=initial_layout,
+    #                     #         layout_method='trivial',
+    #                     #         routing_method='sabre',
+    #                     #         optimization_level=1,
+    #                     #     )
+
+    #                 else:
+    #                     qc_basis = transpile(circuit, backend=backend, initial_layout=initial_layout)
+    #             else:
+    #                 if preserve_layout:
+    #                     identity_layout = list(range(circuit.num_qubits))
+    #                     try:
+    #                         qc_basis = transpile(
+    #                             circuit,
+    #                             backend=backend,
+    #                             initial_layout=identity_layout,
+    #                             layout_method='trivial',
+    #                             routing_method='none',
+    #                             optimization_level=0,
+    #                         )
+    #                     except TranspilerError as te:
+    #                         print("❌ ERROR: El circuito no respeta el layout físico asignado.")
+    #                         raise te
+    #                     # except TranspilerError as te:
+    #                     #     print(f"⚠️ Strict layout transpile failed, enabling routing fallback: {te}")
+    #                     #     qc_basis = transpile(
+    #                     #         circuit,
+    #                     #         backend=backend,
+    #                     #         initial_layout=identity_layout,
+    #                     #         layout_method='trivial',
+    #                     #         routing_method='sabre',
+    #                     #         optimization_level=1,
+    #                     #     )
+    #                 else:
+    #                     qc_basis = transpile(circuit, backend=backend)
+    #         x = int(shots)
+
+    #         while True:
+    #             with self.condition:   
+    #                 if self.queued_jobs < 3:
+    #                     self.queued_jobs += 1
+    #                     job = sampler.run([qc_basis], shots=x)
+    #                     break
+    #                 else:
+    #                     self.condition.wait()
+
+
+    #         # -----------------------------------------------------#
+    #         id = job.job_id() # Get the job id
+    #         provider = 'ibm'
+    #         user_shots = [shots] * len(circuit_names)
+    #         script_dir = os.path.dirname(os.path.realpath(__file__))
+    #         ids_file = os.path.join(script_dir, 'ids.txt')  # create the path to the results file in the script's directory
+    #         with open(ids_file, 'a') as file:
+    #             file.write(json.dumps({id:(users,qubit_number, user_shots, provider, circuit_names)}))
+    #             file.write('\n')
+    #         # Write the id in a file, along with the users, and their qubit numbers
+    #         # -----------------------------------------------------#
+
+    #         result = job.result()
+    #         counts = result[0].data.creg_c.get_counts()
+
+    #         with self.condition:
+    #             self.queued_jobs -= 1
+    #             self.condition.notify()
+
+    #         # -----------------------------------------------------#
+
+    #         #Seach for the id in the file and delete the line
+    #         with open(ids_file, 'r') as file:
+    #             lines = file.readlines()
+    #         with open(ids_file, 'w') as file:
+    #             for line in lines:
+    #                 line_dict = json.loads(line.strip())
+    #                 if list(line_dict.keys())[0] != id:
+    #                     file.write(line)
+
+    #         # -----------------------------------------------------#
+
+    #         return counts
+
+
+    def runIBM_save(
+        self,
+        machine: str,
+        circuit: QuantumCircuit,
+        shots: int,
+        users: list,
+        qubit_number: list,
+        circuit_names: list,
+        initial_layout: list | None = None,
+        preserve_layout: bool = False
+    ):
 
         if machine == "local":
             backend = AerSimulator()
-            x = int(shots)
-            job = backend.run(circuit, shots=x)
-            result = job.result()
-            counts = result.get_counts()
-            return counts
-        else:
-            # Load your IBM Quantum account
+            job = backend.run(circuit, shots=int(shots))
+            return job.result().get_counts()
 
-            service = self.service
-            backend = service.backend(machine)
-            sampler = Sampler(mode=backend)
-            #sampler.options.execution.rep_delay = 0.5 # set it to the maximum of the machine instead -> config.rep_delay_range[1]
-            sampler.options.execution.rep_delay = backend.configuration().rep_delay_range[1] # set it to the maximum of the machine instead -> config.rep_delay_range[1]
-            with self.transpile_lock:
-                if initial_layout:
-                    if preserve_layout:
-                        try:
-                            qc_basis = transpile(
-                                circuit,
-                                backend=backend,
-                                initial_layout=initial_layout,
-                                layout_method='trivial',
-                                routing_method='none',
-                                optimization_level=0,
-                            )
-                        except TranspilerError as te:
-                            print(f"⚠️ Strict layout transpile failed, enabling routing fallback: {te}")
-                            qc_basis = transpile(
-                                circuit,
-                                backend=backend,
-                                initial_layout=initial_layout,
-                                layout_method='trivial',
-                                routing_method='sabre',
-                                optimization_level=1,
-                            )
-                    else:
-                        qc_basis = transpile(circuit, backend=backend, initial_layout=initial_layout)
-                else:
-                    if preserve_layout:
-                        identity_layout = list(range(circuit.num_qubits))
-                        try:
-                            qc_basis = transpile(
-                                circuit,
-                                backend=backend,
-                                initial_layout=identity_layout,
-                                layout_method='trivial',
-                                routing_method='none',
-                                optimization_level=0,
-                            )
-                        except TranspilerError as te:
-                            print(f"⚠️ Strict layout transpile failed, enabling routing fallback: {te}")
-                            qc_basis = transpile(
-                                circuit,
-                                backend=backend,
-                                initial_layout=identity_layout,
-                                layout_method='trivial',
-                                routing_method='sabre',
-                                optimization_level=1,
-                            )
-                    else:
-                        qc_basis = transpile(circuit, backend=backend)
-            x = int(shots)
+        service = self.service
+        backend = service.backend(machine)
 
-            while True:
-                with self.condition:   
-                    if self.queued_jobs < 3:
-                        self.queued_jobs += 1
-                        job = sampler.run([qc_basis], shots=x)
-                        break
-                    else:
-                        self.condition.wait()
+        sampler = Sampler(mode=backend)
+        sampler.options.execution.rep_delay = backend.configuration().rep_delay_range[1]
 
+        # 🔒 TRANSPILACIÓN (estricta solo si preserve_layout=True)
+        with self.transpile_lock:
+            if preserve_layout:
+                if initial_layout is None:
+                    initial_layout = list(range(circuit.num_qubits))
 
-            # -----------------------------------------------------#
-            id = job.job_id() # Get the job id
-            provider = 'ibm'
-            user_shots = [shots] * len(circuit_names)
-            script_dir = os.path.dirname(os.path.realpath(__file__))
-            ids_file = os.path.join(script_dir, 'ids.txt')  # create the path to the results file in the script's directory
-            with open(ids_file, 'a') as file:
-                file.write(json.dumps({id:(users,qubit_number, user_shots, provider, circuit_names)}))
-                file.write('\n')
-            # Write the id in a file, along with the users, and their qubit numbers
-            # -----------------------------------------------------#
+                try:
+                    qc_basis = transpile(
+                        circuit,
+                        backend=backend,
+                        initial_layout=initial_layout,
+                        layout_method="trivial",
+                        routing_method="none",
+                        optimization_level=0,
+                        scheduling_method=None
+                    )
+                except TranspilerError as e:
+                    print("❌ El circuito no respeta el layout físico.")
+                    raise e
+            else:
+                qc_basis = transpile(
+                    circuit,
+                    backend=backend,
+                    initial_layout=initial_layout,
+                    layout_method="sabre" if initial_layout is not None else None,
+                    routing_method="sabre",
+                    optimization_level=1,
+                    scheduling_method=None
+                )
 
-            result = job.result()
-            counts = result[0].data.creg_c.get_counts()
+        virtual_to_physical_map = self._extract_virtual_to_physical_map(qc_basis, circuit.num_qubits)
 
+        shots = int(shots)
+
+        while True:
             with self.condition:
-                self.queued_jobs -= 1
-                self.condition.notify()
+                if self.queued_jobs < 3:
+                    self.queued_jobs += 1
+                    job = sampler.run([qc_basis], shots=shots)
+                    break
+                else:
+                    self.condition.wait()
 
-            # -----------------------------------------------------#
+        job_id = job.job_id()
 
-            #Seach for the id in the file and delete the line
-            with open(ids_file, 'r') as file:
-                lines = file.readlines()
-            with open(ids_file, 'w') as file:
-                for line in lines:
-                    line_dict = json.loads(line.strip())
-                    if list(line_dict.keys())[0] != id:
-                        file.write(line)
+        provider = "ibm"
+        user_shots = [shots] * len(circuit_names)
 
-            # -----------------------------------------------------#
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        ids_file = os.path.join(script_dir, "ids.txt")
 
-            return counts
+        with open(ids_file, "a") as f:
+            f.write(json.dumps({job_id: (users, qubit_number, user_shots, provider, circuit_names)}))
+            f.write("\n")
+
+        result = job.result()
+
+        counts = result[0].data.creg_c.get_counts()
+
+        with self.condition:
+            self.queued_jobs -= 1
+            self.condition.notify()
+
+        # limpiar id
+        with open(ids_file, "r") as f:
+            lines = f.readlines()
+
+        with open(ids_file, "w") as f:
+            for line in lines:
+                line_dict = json.loads(line.strip())
+                if list(line_dict.keys())[0] != job_id:
+                    f.write(line)
+
+        return counts, {
+            "job_id": job_id,
+            "virtual_to_physical": virtual_to_physical_map,
+            "preserve_layout": preserve_layout,
+        }
 
 
 
