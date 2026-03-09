@@ -121,7 +121,7 @@ class SchedulerPolicies:
         self.iteracion_tiempo = 0
         self.iteracion_ML = 0
         self.app = app
-        self.time_limit_seconds = 20#300 #estaba en 600
+        self.time_limit_seconds = 30#300 #estaba en 600
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
