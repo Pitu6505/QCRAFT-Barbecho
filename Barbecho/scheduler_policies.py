@@ -121,7 +121,7 @@ class SchedulerPolicies:
         self.iteracion_tiempo = 0
         self.iteracion_ML = 0
         self.app = app
-        self.time_limit_seconds = 30#300 #estaba en 600
+        self.time_limit_seconds = 500#300 #estaba en 600
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
@@ -752,158 +752,176 @@ class SchedulerPolicies:
 
 
     def send_combined_graph_horizontal(self, queue, max_qubits, provider, executeCircuit, machine):
-        """
-        Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
-        Llena la máquina según conectividad, y cuando se agotan los qubits, añade una capa
-        temporal (barrera + reset) y vuelve a empezar sobre los mismos qubits físicos.
-        """
-
-        """
-        Política Híbrida: Colocación inteligente por grafos + Extensión horizontal (Batching).
-
-        IDEA GENERAL:
-        --------------------------------------------------------
-        1. Usa un algoritmo de colocación basado en grafo físico
-        (select_best_qubits_persistent → place_circuits_persistent).
-        2. Cuando la máquina se llena, no termina el Job:
-        crea una nueva "capa temporal".
-        3. Reutiliza los mismos qubits físicos en la siguiente capa
-        (conceptualmente tras barrier + reset).
-        4. Todo se ejecuta finalmente como un único Job compuesto.
-
-        Combina:
-            - Optimización espacial (topología + ruido)
-            - Persistencia histórica (usage_vector)
-            - Extensión temporal (batching horizontal)
-        """
 
         if not queue:
             print("\n✅ No hay circuitos en la cola.")
             return
 
         print(f"🚀 Iniciando política Híbrida (Grafo + Horizontal) en {machine}")
-        
-         # ------------------------------------------------------------
+
+        # ------------------------------------------------------------
+        # 📂 CONFIGURACIÓN DE SALIDA info.txt
+        # ------------------------------------------------------------
+        if not hasattr(self, "current_classical_index_global"):
+            self.current_classical_index_global = 0
+
+        if not hasattr(self, "iteracion_tiempo"):
+            self.iteracion_tiempo = 1
+
+        carpeta_resultados = os.path.join(os.getcwd(), "resultadosTodos")
+        carpeta_info = os.path.join(carpeta_resultados, "resultadosIBM_147_repeticion")
+
+        os.makedirs(carpeta_info, exist_ok=True)
+
+        info_file = os.path.join(carpeta_info, "info_147.txt")
+
+        if self.iteracion_tiempo == 1 and not os.path.exists(info_file):
+            with open(info_file, "w") as f:
+                f.write("=== Información de circuitos ejecutados ===\n")
+
+        # ------------------------------------------------------------
         # 1️⃣ VARIABLES DE CONTROL
         # ------------------------------------------------------------
 
-        # Copia local para no modificar la cola original hasta el final
         remaining_queue = list(queue)
-        # Aquí guardamos la estructura completa del Job final
-        # Cada elemento representa una capa horizontal
+
         all_batches_layout = []
-        # Lista plana de todos los circuitos que finalmente se ejecutarán
+
         circuitos_para_ejecutar = []
-        # Control de recursos globales
+
         total_qubits_acumulados = 0
+
         LIMITE_GLOBAL_QUBITS = 70000
-        # Contador de capas temporales
+
         iteracion_horizontal = 0
-        # Resolver nombre de backend según proveedor
+
         backend_name = self.machine_ibm if provider == 'ibm' else None
 
-        # 🔒 Distancia congelada para todo el Job
         distancia_fija = None
 
-        # Mientras queden circuitos y no superemos el límite global
+        # ------------------------------------------------------------
+        # LOOP PRINCIPAL
+        # ------------------------------------------------------------
+
         while remaining_queue and total_qubits_acumulados < LIMITE_GLOBAL_QUBITS:
+
             iteracion_horizontal += 1
 
-            # --------------------------------------------------------
-            # 🔒 Congelar distancia SOLO en la primera iteración
-            # --------------------------------------------------------
-            # Se basa en la media del tamaño de los circuitos
-            # (heurística estructural).
-            # Esto evita que cambie cuando la cola se reduce.
             if distancia_fija is None:
                 tamanos_iniciales = [item[1] for item in remaining_queue]
                 media = sum(tamanos_iniciales) / len(tamanos_iniciales)
                 distancia_fija = math.ceil(media)
+
                 print(f"🔒 Distancia congelada para todo el Job: {distancia_fija}")
 
-            # 2️⃣ Formatear cola restante
             formatted_queue = CircuitQueue()
+
             for item in remaining_queue:
+
                 edges = self.extract_edges_from_circuit(item[0])
+
                 formatted_queue.add_circuit(
                     circuit_id=str(item[3]),
                     required_qubits=item[1],
                     edges=edges
                 )
 
-            # --------------------------------------------------------
-            # 3️⃣ LLAMADA AL COLOCADOR PERSISTENTE
-            # --------------------------------------------------------
-            # Este método:
-            #   - Construye el grafo físico del backend
-            #   - Calcula umbral dinámico de ruido
-            #   - Usa usage_vector histórico
-            #   - Aplica restricciones de distancia mínima
-            #   - Ejecuta heurísticas BFS + isomorfismo
-            #
-            # fixed_distance garantiza que la separación mínima
-            # no cambie entre iteraciones.
             cola_procesada, layout_fisico, _ = select_best_qubits_persistent(
                 circuits=formatted_queue,
                 provider=provider,
                 backend_name=backend_name,
                 noise_threshold=None,
                 max_time_seconds=30,
-                fixed_distance=distancia_fija   # 👈 AQUÍ ESTÁ LA CLAVE
+                fixed_distance=distancia_fija
             )
 
             if not cola_procesada:
                 break
 
-            # 4️⃣ Identificar circuitos seleccionados
             seleccionados_ids = {str(s['id']) for s in cola_procesada}
-            
+
             capa_actual = []
 
             for item in list(remaining_queue):
+
                 if str(item[3]) in seleccionados_ids:
+
                     capa_actual.append(item)
+
                     circuitos_para_ejecutar.append(item)
+
                     total_qubits_acumulados += item[1]
+
                     remaining_queue.remove(item)
 
-            # Guardamos metadata de esta capa
+                    # ------------------------------------------------------------
+                    # 📝 GUARDAR INFO DEL CIRCUITO (info_506.txt)
+                    # ------------------------------------------------------------
+
+                    circuito_nombre = item[4]
+                    num_qubits = item[1]
+
+                    reg_inicio = f"c{self.current_classical_index_global}"
+                    reg_final = f"c{self.current_classical_index_global + num_qubits - 1}"
+
+                    with open(info_file, "a") as info:
+                        info.write(
+                            f"Circuito: {circuito_nombre} | "
+                            f"Registros clásicos: {reg_inicio} - {reg_final} | "
+                            f"Iteración: {self.iteracion_tiempo} | "
+                            f"Batch: {iteracion_horizontal}\n"
+                        )
+
+                    self.current_classical_index_global += num_qubits
+
             all_batches_layout.append({
-            'iteracion_temporal': iteracion_horizontal,
-            'layout': layout_fisico,
-            'circuitos_info': {
-                str(item[3]): {  # ID del circuito
-                    "code": item[0], 
-                    "qb": item[1], 
-                    "name": item[4]
-                } for item in capa_actual
-            },
-            'distancia_usada': distancia_fija
-        })
-            
-            print(f"✅ Verificación Capa {iteracion_horizontal}: "
-      f"Circuitos asignados: {list(all_batches_layout[-1]['circuitos_info'].keys())}")
+
+                'iteracion_temporal': iteracion_horizontal,
+
+                'layout': layout_fisico,
+
+                'circuitos_info': {
+
+                    str(item[3]): {
+
+                        "code": item[0],
+                        "qb": item[1],
+                        "name": item[4]
+
+                    } for item in capa_actual
+
+                },
+
+                'distancia_usada': distancia_fija
+            })
+
+            print(
+                f"✅ Verificación Capa {iteracion_horizontal}: "
+                f"Circuitos asignados: {list(all_batches_layout[-1]['circuitos_info'].keys())}"
+            )
 
             print(f"📦 Capa {iteracion_horizontal}: Colocados {len(capa_actual)} circuitos.")
 
-        # 5️⃣ EJECUCIÓN FINAL (un solo JOB)
+        # ------------------------------------------------------------
+        # 5️⃣ EJECUCIÓN FINAL
+        # ------------------------------------------------------------
+
         if circuitos_para_ejecutar:
 
             print(f"⚡ Ejecutando Job compuesto por {len(all_batches_layout)} capas horizontales.")
 
-            # Log
             print("DEBUG: Voy a guardar resultados híbridos")
+
             self.log_hibrido_resultados(all_batches_layout, total_qubits_acumulados)
-            
+
             code, qb = [], []
-            # Shots asociados a cada circuito
+
             shotsUsr = [item[2] for item in circuitos_para_ejecutar]
 
-            # Tu constructor de circuito debe manejar las capas + barreras + reset
             self.create_circuit_horizontal(all_batches_layout, code, qb, provider)
 
             data = {"code": code}
-            #executeCircuit(json.dumps(data), qb, shotsUsr, provider, circuitos_para_ejecutar, machine, all_batches_layout)
+
             layout_fisico = all_batches_layout if all_batches_layout else None
 
             executeCircuit(
@@ -916,10 +934,9 @@ class SchedulerPolicies:
                 layout_fisico
             )
 
-            # Actualizamos la cola original quitando los ejecutados
             queue[:] = remaining_queue
 
-            
+            self.iteracion_tiempo += 1
 
         else:
             print("⚠️ No se pudo colocar ningún circuito.")
@@ -929,9 +946,9 @@ class SchedulerPolicies:
 
 
     def log_hibrido_resultados(self, layouts, total_qb):
-        os.makedirs("./resultados", exist_ok=True)
+        os.makedirs("./resultadosTodos", exist_ok=True)
 
-        with open("./resultados/SalidaHibrida.txt", 'a', encoding='utf-8') as f:
+        with open("./resultadosTodos/resultadosIBM_147_repeticion/Salida_147.txt", 'a', encoding='utf-8') as f:
             f.write("\n=====================================================\n")
             f.write("🚀 Nueva Ejecución Híbrida (Grafo + Horizontal)\n")
             f.write("=====================================================\n")
@@ -959,9 +976,9 @@ class SchedulerPolicies:
                 f.write("\n")
 
     def log_hibrido_layout_real(self, layouts, virtual_to_physical, job_id=None, preserve_layout_used=None):
-        os.makedirs("./resultados", exist_ok=True)
+        os.makedirs("./resultadosTodos", exist_ok=True)
 
-        with open("./resultados/SalidaHibrida.txt", 'a', encoding='utf-8') as f:
+        with open("./resultadosTodos/resultadosIBM_147_repeticion/Salida_147.txt", 'a', encoding='utf-8') as f:
             f.write("Layout IBM real (post-transpile):\n")
             if job_id:
                 f.write(f"Job IBM: {job_id}\n")
