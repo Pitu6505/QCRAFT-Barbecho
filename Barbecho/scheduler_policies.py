@@ -121,13 +121,13 @@ class SchedulerPolicies:
         self.iteracion_tiempo = 0
         self.iteracion_ML = 0
         self.app = app
-        self.time_limit_seconds = 500#300 #estaba en 600
+        self.time_limit_seconds = 50#500#300 #estaba en 600
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
         self.max_qubits = 312 #312 #254 o 266
         self.max_qubits_send = 156 #156 #127 o 133
-        self.machine_ibm = 'ibm_fez' # ibm_brisbane o ibm_torino o ibm_marrakesh o ibm_fez
+        self.machine_ibm = 'ibm_kingston' # ibm_brisbane o ibm_torino o ibm_marrakesh o ibm_fez ibm_kingston
         self.machine_aws = 'local'
         
 
@@ -332,6 +332,7 @@ class SchedulerPolicies:
             return   # 👈 IMPORTANTE: salir si falla aquí
 
         print('_____________________________________________________________________')
+        print(circuit_obj)
         print('_____________________________________________________________________')
 
         # -------------------------------
@@ -451,7 +452,10 @@ class SchedulerPolicies:
 
         return max_element
 
+
     #def create_circuit(self, urls: list, code: list, qb: list, provider: str) -> None:
+
+    
     def create_circuit(self, urls: list, code: list, qb: list, provider: str) -> None:
 
         """
@@ -536,7 +540,7 @@ class SchedulerPolicies:
 
         code.append("return circuit")
 
-
+   
     # def create_circuit_horizontal(self, all_batches_layout, code, qb, provider):
     #     if not all_batches_layout:
     #         return
@@ -614,39 +618,144 @@ class SchedulerPolicies:
     #         code.append(f"circuit.measure(qreg_q[{i}], creg_c[{i}])")
 
     #     code.append("return circuit")
+
+     #ESTABA PERFECTO pero era reseteando todos los qubit
+    # def create_circuit_horizontal(self, all_batches_layout, code, qb, provider):
+    #     if not all_batches_layout:
+    #         return
+
+    #     print("🧱 Construyendo circuito horizontal (Circuito -> Measure -> Barrier -> Reset)...")
+
+    #     # 1️⃣ Calcular qubits físicos totales
+    #     max_physical_qubit = 0
+    #     for capa in all_batches_layout:
+    #         layout = capa["layout"]
+    #         for phys_qubits in layout.values():
+    #             max_physical_qubit = max(max_physical_qubit, max(phys_qubits))
+
+    #     total_physical_qubits = max_physical_qubit + 1
+    #     qb.append(total_physical_qubits)
+
+    #     # 2️⃣ Preámbulo IBM
+    #     if provider == 'ibm':
+    #         code.insert(0, "circuit = QuantumCircuit(qreg_q, creg_c)")
+    #         code.insert(0, f"creg_c = ClassicalRegister({total_physical_qubits}, 'c')")
+    #         code.insert(0, f"qreg_q = QuantumRegister({total_physical_qubits}, 'q')")
+    #         code.insert(0, "from qiskit import QuantumRegister, ClassicalRegister, QuantumCircuit")
+    #         code.insert(0, "from qiskit.circuit.library import MCXGate, MCMT, XGate, YGate, ZGate")
+    #         code.insert(0, "import numpy as np")
+    #         code.insert(0, "from numpy import pi")
+
+    #     # 3️⃣ Construcción por capas
+    #     for idx, capa in enumerate(all_batches_layout):
+    #         print(f"📦 Procesando capa horizontal {idx+1}")
+    #         layout = capa["layout"]
+    #         circuitos_info = capa["circuitos_info"]
+
+    #         # --- A: Puertas y Mediciones de los circuitos de la capa ---
+    #         for circuit_id in layout:
+    #             if circuit_id not in circuitos_info:
+    #                 continue
+                    
+    #             physical_mapping = layout[circuit_id]
+    #             raw_code = circuitos_info[circuit_id]["code"]
+    #             num_qb = circuitos_info[circuit_id]["qb"]
+    #             circuit_lines = raw_code.split('\n')
+
+    #             mapped_slice = physical_mapping[:num_qb] if isinstance(physical_mapping, list) else physical_mapping
+    #             if isinstance(mapped_slice, list) and len(mapped_slice) != len(set(mapped_slice)):
+    #                 print(
+    #                     f"⚠️ Layout con qubits físicos duplicados para circuito {circuit_id}: {mapped_slice}. "
+    #                     "Se omitirán instrucciones inválidas tras el mapeo."
+    #                 )
+
+    #             for line in circuit_lines:
+    #                 # Limpieza de definiciones
+    #                 if any(x in line for x in ["QuantumCircuit", "import", "return", "ClassicalRegister", "QuantumRegister", "qc ="]):
+    #                     continue
+                    
+    #                 new_line = line
+    #                 # Reemplazo de índices lógicos a físicos (tanto para puertas como para medidas)
+    #                 indices_logicos = sorted(range(num_qb), reverse=True)
+    #                 for logical_idx in indices_logicos:
+    #                     phys_idx = physical_mapping[logical_idx]
+                        
+    #                     # 1. Reemplazar solo registros cuánticos: qreg_q[0] / q[0] -> qreg_q[phys]
+    #                     pattern_q = r'\b(?:qreg_q|q)\s*\[\s*' + str(logical_idx) + r'\s*\]'
+    #                     new_line = re.sub(pattern_q, f"qreg_q[{phys_idx}]", new_line)
+                        
+    #                     # 2. Reemplazar registros clásicos: creg_c[0] / c[0] -> creg_c[phys]
+    #                     # Esto asegura que el resultado del qubit físico se guarde en su bit correspondiente
+    #                     pattern_c = r'\b(?:creg_c|c)\s*\[\s*' + str(logical_idx) + r'\s*\]'
+    #                     new_line = re.sub(pattern_c, f"creg_c[{phys_idx}]", new_line)
+
+    #                 # Evitar puertas multi-qubit inválidas como cx(q[i], q[i]) tras el mapeo lógico->físico.
+    #                 # Si aparecen qubits físicos repetidos en la misma instrucción cuántica, se omite.
+    #                 gate_match = re.match(r'\s*circuit\.(\w+)\s*\((.*)\)\s*$', new_line)
+    #                 if gate_match:
+    #                     gate_name = gate_match.group(1)
+    #                     gate_args = gate_match.group(2)
+    #                     mapped_qubits = re.findall(r'qreg_q\[\s*(\d+)\s*\]', gate_args)
+    #                     if len(mapped_qubits) >= 2 and len(mapped_qubits) != len(set(mapped_qubits)):
+    #                         print(
+    #                             f"⚠️ Instrucción omitida por qubits duplicados tras mapeo en capa {idx+1}, "
+    #                             f"circuito {circuit_id}: {new_line.strip()}"
+    #                         )
+    #                         continue
+
+    #                 if new_line.strip():
+    #                     code.append(new_line)
+
+    #         # --- B: Barrera y Reset (Sincronización al final de la capa) ---
+    #         # Añadimos una barrera siempre después de las medidas de la capa para separar del reset
+    #         code.append("circuit.barrier()")
+            
+    #         # Si NO es la última capa, reseteamos para poder reutilizar los qubits
+    #         if idx < len(all_batches_layout) - 1:
+    #             for q in range(total_physical_qubits):
+    #                 code.append(f"circuit.reset(qreg_q[{q}])")
+    #             # Barrera opcional después del reset para mayor claridad visual
+    #             code.append("circuit.barrier()")
+
+    #     code.append("return circuit")
+    #     print("✅ Circuito horizontal construido con mediciones intercaladas.")
+
     def create_circuit_horizontal(self, all_batches_layout, code, qb, provider):
         if not all_batches_layout:
             return
 
-        print("🧱 Construyendo circuito horizontal (Circuito -> Measure -> Barrier -> Reset)...")
+        print("🧱 Construyendo circuito horizontal acumulativo (Estilo antiguo)...")
 
-        # 1️⃣ Calcular qubits físicos totales
+        # 1️⃣ Calcular qubits físicos máximos para el QuantumRegister
         max_physical_qubit = 0
+        total_mediciones_acumuladas = 0
         for capa in all_batches_layout:
             layout = capa["layout"]
-            for phys_qubits in layout.values():
+            for circuit_id, phys_qubits in layout.items():
                 max_physical_qubit = max(max_physical_qubit, max(phys_qubits))
+                total_mediciones_acumuladas += len(phys_qubits) # Sumamos todos los bits necesarios
 
         total_physical_qubits = max_physical_qubit + 1
         qb.append(total_physical_qubits)
 
-        # 2️⃣ Preámbulo IBM
+        # 2️⃣ Preámbulo IBM: Registro cuántico fijo, Registro clásico GIGANTE (acumulativo)
         if provider == 'ibm':
             code.insert(0, "circuit = QuantumCircuit(qreg_q, creg_c)")
-            code.insert(0, f"creg_c = ClassicalRegister({total_physical_qubits}, 'c')")
+            code.insert(0, f"creg_c = ClassicalRegister({total_mediciones_acumuladas}, 'c')")
             code.insert(0, f"qreg_q = QuantumRegister({total_physical_qubits}, 'q')")
             code.insert(0, "from qiskit import QuantumRegister, ClassicalRegister, QuantumCircuit")
-            code.insert(0, "from qiskit.circuit.library import MCXGate, MCMT, XGate, YGate, ZGate")
             code.insert(0, "import numpy as np")
             code.insert(0, "from numpy import pi")
 
         # 3️⃣ Construcción por capas
+        current_classical_offset = 0 # Esta variable imita tu código antiguo
+
         for idx, capa in enumerate(all_batches_layout):
-            print(f"📦 Procesando capa horizontal {idx+1}")
             layout = capa["layout"]
             circuitos_info = capa["circuitos_info"]
+            qubits_fisicos_usados_en_esta_capa = set()
+            mediciones_en_esta_capa = 0
 
-            # --- A: Puertas y Mediciones de los circuitos de la capa ---
             for circuit_id in layout:
                 if circuit_id not in circuitos_info:
                     continue
@@ -656,63 +765,151 @@ class SchedulerPolicies:
                 num_qb = circuitos_info[circuit_id]["qb"]
                 circuit_lines = raw_code.split('\n')
 
-                mapped_slice = physical_mapping[:num_qb] if isinstance(physical_mapping, list) else physical_mapping
-                if isinstance(mapped_slice, list) and len(mapped_slice) != len(set(mapped_slice)):
-                    print(
-                        f"⚠️ Layout con qubits físicos duplicados para circuito {circuit_id}: {mapped_slice}. "
-                        "Se omitirán instrucciones inválidas tras el mapeo."
-                    )
-
+                # Mapeo lógico -> físico
+                indices_logicos = sorted(range(num_qb), reverse=True)
                 for line in circuit_lines:
-                    # Limpieza de definiciones
                     if any(x in line for x in ["QuantumCircuit", "import", "return", "ClassicalRegister", "QuantumRegister", "qc ="]):
                         continue
                     
                     new_line = line
-                    # Reemplazo de índices lógicos a físicos (tanto para puertas como para medidas)
-                    indices_logicos = sorted(range(num_qb), reverse=True)
                     for logical_idx in indices_logicos:
                         phys_idx = physical_mapping[logical_idx]
+                        qubits_fisicos_usados_en_esta_capa.add(phys_idx)
                         
-                        # 1. Reemplazar solo registros cuánticos: qreg_q[0] / q[0] -> qreg_q[phys]
-                        pattern_q = r'\b(?:qreg_q|q)\s*\[\s*' + str(logical_idx) + r'\s*\]'
-                        new_line = re.sub(pattern_q, f"qreg_q[{phys_idx}]", new_line)
+                        # REEMPLAZO CUÁNTICO (fijo al qubit físico)
+                        new_line = re.sub(r'\b(?:qreg_q|q)\[\s*' + str(logical_idx) + r'\s*\]', f"qreg_q[{phys_idx}]", new_line)
                         
-                        # 2. Reemplazar registros clásicos: creg_c[0] / c[0] -> creg_c[phys]
-                        # Esto asegura que el resultado del qubit físico se guarde en su bit correspondiente
-                        pattern_c = r'\b(?:creg_c|c)\s*\[\s*' + str(logical_idx) + r'\s*\]'
-                        new_line = re.sub(pattern_c, f"creg_c[{phys_idx}]", new_line)
+                        # REEMPLAZO CLÁSICO (acumulativo como en tu código viejo)
+                        # En lugar de usar phys_idx, usamos el offset global para que no colisionen
+                        target_c_bit = current_classical_offset + logical_idx
+                        new_line = re.sub(r'\b(?:creg_c|c)\[\s*' + str(logical_idx) + r'\s*\]', f"creg_c[{target_c_bit}]", new_line)
 
-                    # Evitar puertas multi-qubit inválidas como cx(q[i], q[i]) tras el mapeo lógico->físico.
-                    # Si aparecen qubits físicos repetidos en la misma instrucción cuántica, se omite.
-                    gate_match = re.match(r'\s*circuit\.(\w+)\s*\((.*)\)\s*$', new_line)
-                    if gate_match:
-                        gate_name = gate_match.group(1)
-                        gate_args = gate_match.group(2)
-                        mapped_qubits = re.findall(r'qreg_q\[\s*(\d+)\s*\]', gate_args)
-                        if len(mapped_qubits) >= 2 and len(mapped_qubits) != len(set(mapped_qubits)):
-                            print(
-                                f"⚠️ Instrucción omitida por qubits duplicados tras mapeo en capa {idx+1}, "
-                                f"circuito {circuit_id}: {new_line.strip()}"
-                            )
-                            continue
+                    # Validar duplicados físicos en la misma instrucción
+                    qubits_en_linea = re.findall(r'qreg_q\[\s*(\d+)\s*\]', new_line)
+                    if len(qubits_en_linea) != len(set(qubits_en_linea)):
+                        continue
 
                     if new_line.strip():
                         code.append(new_line)
+                
+                # Al final de cada circuito dentro del batch, el offset avanza
+                current_classical_offset += num_qb
 
-            # --- B: Barrera y Reset (Sincronización al final de la capa) ---
-            # Añadimos una barrera siempre después de las medidas de la capa para separar del reset
+            # --- B: Barrera y Reset Quirúrgico ---
             code.append("circuit.barrier()")
             
-            # Si NO es la última capa, reseteamos para poder reutilizar los qubits
             if idx < len(all_batches_layout) - 1:
-                for q in range(total_physical_qubits):
-                    code.append(f"circuit.reset(qreg_q[{q}])")
-                # Barrera opcional después del reset para mayor claridad visual
+                # Reseteamos solo los qubits que han trabajado en esta capa
+                for q_fisico in sorted(qubits_fisicos_usados_en_esta_capa):
+                    code.append(f"circuit.reset(qreg_q[{q_fisico}])")
                 code.append("circuit.barrier()")
 
         code.append("return circuit")
-        print("✅ Circuito horizontal construido con mediciones intercaladas.")
+    #ESTA BIEN, RESETEA SOLO LOS QUBITS QUE SE HAN UTILIZADO EN EL BATCH ANTERIOR
+    # def create_circuit_horizontal(self, all_batches_layout, code, qb, provider):
+    #     if not all_batches_layout:
+    #         return
+
+    #     print("🧱 Construyendo circuito horizontal (Circuito -> Measure -> Barrier -> Reset)...")
+
+    #     # 1️⃣ Calcular qubits físicos totales
+    #     max_physical_qubit = 0
+    #     for capa in all_batches_layout:
+    #         layout = capa["layout"]
+    #         for phys_qubits in layout.values():
+    #             max_physical_qubit = max(max_physical_qubit, max(phys_qubits))
+    #     total_physical_qubits = max_physical_qubit + 1
+    #     qb.append(total_physical_qubits)
+
+    #     # 2️⃣ Preámbulo IBM
+    #     if provider == 'ibm':
+    #         code.insert(0, "circuit = QuantumCircuit(qreg_q, creg_c)")
+    #         code.insert(0, f"creg_c = ClassicalRegister({total_physical_qubits}, 'c')")
+    #         code.insert(0, f"qreg_q = QuantumRegister({total_physical_qubits}, 'q')")
+    #         code.insert(0, "from qiskit import QuantumRegister, ClassicalRegister, QuantumCircuit")
+    #         code.insert(0, "from qiskit.circuit.library import MCXGate, MCMT, XGate, YGate, ZGate")
+    #         code.insert(0, "import numpy as np")
+    #         code.insert(0, "from numpy import pi")
+
+    #     # 3️⃣ Construcción por capas
+    #     for idx, capa in enumerate(all_batches_layout):
+    #         print(f"📦 Procesando capa horizontal {idx+1}")
+    #         layout = capa["layout"]
+    #         circuitos_info = capa["circuitos_info"]
+
+    #         # --- A: Puertas y Mediciones de los circuitos de la capa ---
+    #         for circuit_id in layout:
+    #             if circuit_id not in circuitos_info:
+    #                 continue
+                    
+    #             physical_mapping = layout[circuit_id]
+    #             raw_code = circuitos_info[circuit_id]["code"]
+    #             num_qb = circuitos_info[circuit_id]["qb"]
+    #             circuit_lines = raw_code.split('\n')
+
+    #             mapped_slice = physical_mapping[:num_qb] if isinstance(physical_mapping, list) else physical_mapping
+    #             if isinstance(mapped_slice, list) and len(mapped_slice) != len(set(mapped_slice)):
+    #                 print(
+    #                     f"⚠️ Layout con qubits físicos duplicados para circuito {circuit_id}: {mapped_slice}. "
+    #                     "Se omitirán instrucciones inválidas tras el mapeo."
+    #                 )
+
+    #             for line in circuit_lines:
+    #                 # Limpieza de definiciones
+    #                 if any(x in line for x in ["QuantumCircuit", "import", "return", "ClassicalRegister", "QuantumRegister", "qc ="]):
+    #                     continue
+                    
+    #                 new_line = line
+    #                 # Reemplazo de índices lógicos a físicos (tanto para puertas como para medidas)
+    #                 indices_logicos = sorted(range(num_qb), reverse=True)
+    #                 for logical_idx in indices_logicos:
+    #                     phys_idx = physical_mapping[logical_idx]
+                        
+    #                     # Reemplazar registros cuánticos
+    #                     pattern_q = r'\b(?:qreg_q|q)\s*\[\s*' + str(logical_idx) + r'\s*\]'
+    #                     new_line = re.sub(pattern_q, f"qreg_q[{phys_idx}]", new_line)
+                        
+    #                     # Reemplazar registros clásicos
+    #                     pattern_c = r'\b(?:creg_c|c)\s*\[\s*' + str(logical_idx) + r'\s*\]'
+    #                     new_line = re.sub(pattern_c, f"creg_c[{phys_idx}]", new_line)
+
+    #                 # Evitar puertas multi-qubit inválidas
+    #                 gate_match = re.match(r'\s*circuit\.(\w+)\s*\((.*)\)\s*$', new_line)
+    #                 if gate_match:
+    #                     gate_args = gate_match.group(2)
+    #                     mapped_qubits = re.findall(r'qreg_q\[\s*(\d+)\s*\]', gate_args)
+    #                     if len(mapped_qubits) >= 2 and len(mapped_qubits) != len(set(mapped_qubits)):
+    #                         print(
+    #                             f"⚠️ Instrucción omitida por qubits duplicados tras mapeo en capa {idx+1}, "
+    #                             f"circuito {circuit_id}: {new_line.strip()}"
+    #                         )
+    #                         continue
+
+    #                 if new_line.strip():
+    #                     code.append(new_line)
+
+    #         # --- B: Barrera y Reset (Solo qubits usados) ---
+    #         code.append("circuit.barrier()")
+
+    #         if idx < len(all_batches_layout) - 1:
+    #             # Obtener qubits usados en esta capa
+    #             used_qubits = set()
+    #             for circuit_id in layout:
+    #                 physical_mapping = layout[circuit_id]
+    #                 num_qb = circuitos_info[circuit_id]["qb"]
+    #                 mapped_slice = physical_mapping[:num_qb] if isinstance(physical_mapping, list) else physical_mapping
+    #                 used_qubits.update(mapped_slice)
+
+    #             for q in sorted(used_qubits):
+    #                 code.append(f"circuit.reset(qreg_q[{q}])")
+
+    #             code.append("circuit.barrier()")  # opcional después del reset
+
+    #     code.append("return circuit")
+    #     print("✅ Circuito horizontal construido con mediciones intercaladas y resets selectivos.")
+
+
+   
 
 
     def read_circuit(self, circuit_name):
@@ -769,11 +966,11 @@ class SchedulerPolicies:
             self.iteracion_tiempo = 1
 
         carpeta_resultados = os.path.join(os.getcwd(), "resultadosTodos")
-        carpeta_info = os.path.join(carpeta_resultados, "resultadosIBM_147_repeticion")
+        carpeta_info = os.path.join(carpeta_resultados, "resultadosIBM_1_Torino_repeticion_3")
 
         os.makedirs(carpeta_info, exist_ok=True)
 
-        info_file = os.path.join(carpeta_info, "info_147.txt")
+        info_file = os.path.join(carpeta_info, "info_1_Torino_3.txt")
 
         if self.iteracion_tiempo == 1 and not os.path.exists(info_file):
             with open(info_file, "w") as f:
@@ -948,7 +1145,7 @@ class SchedulerPolicies:
     def log_hibrido_resultados(self, layouts, total_qb):
         os.makedirs("./resultadosTodos", exist_ok=True)
 
-        with open("./resultadosTodos/resultadosIBM_147_repeticion/Salida_147.txt", 'a', encoding='utf-8') as f:
+        with open("./resultadosTodos/resultadosIBM_1_Torino_repeticion_3/Salida_1_Torino_3.txt", 'a', encoding='utf-8') as f:
             f.write("\n=====================================================\n")
             f.write("🚀 Nueva Ejecución Híbrida (Grafo + Horizontal)\n")
             f.write("=====================================================\n")
@@ -978,7 +1175,7 @@ class SchedulerPolicies:
     def log_hibrido_layout_real(self, layouts, virtual_to_physical, job_id=None, preserve_layout_used=None):
         os.makedirs("./resultadosTodos", exist_ok=True)
 
-        with open("./resultadosTodos/resultadosIBM_147_repeticion/Salida_147.txt", 'a', encoding='utf-8') as f:
+        with open("./resultadosTodos/resultadosIBM_1_Torino_repeticion_3/Salida_1_Torino_3.txt", 'a', encoding='utf-8') as f:
             f.write("Layout IBM real (post-transpile):\n")
             if job_id:
                 f.write(f"Job IBM: {job_id}\n")

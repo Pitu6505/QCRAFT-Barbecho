@@ -94,59 +94,148 @@ def get_calibration_id(backend_name, platform, backend_obj=None, properties=None
     
     return "unknown"
 
+PERSISTENT_DATA_DIR = "persistent_data"
+
+
+def append_history(backend_name, mensaje):
+    """
+    Añade una entrada al historial de eventos del backend.
+    """
+    os.makedirs(PERSISTENT_DATA_DIR, exist_ok=True)
+
+    history_file = os.path.join(
+        PERSISTENT_DATA_DIR,
+        f"{backend_name}_history.txt"
+    )
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(history_file, "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] {mensaje}\n")
+
+
 def load_usage_vector(backend_name, num_qubits, calibration_id):
     """
     Carga el vector de visitados desde archivo si existe y es válido.
-    
+
     Returns:
-        list: Vector de uso (todos 0 si es nuevo) y bool indicando si se cargó
+        tuple: (usage_vector, loaded_successfully)
     """
     os.makedirs(PERSISTENT_DATA_DIR, exist_ok=True)
-    filepath = os.path.join(PERSISTENT_DATA_DIR, f"{backend_name}_usage.json")
-    
+
+    filepath = os.path.join(
+        PERSISTENT_DATA_DIR,
+        f"{backend_name}_usage.json"
+    )
+
     if not os.path.exists(filepath):
         print(f"📝 Creando nuevo vector de visitados para {backend_name}")
-        return [0] * num_qubits, False
-    
-    try:
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-        
-        # Validar que sea la misma máquina y calibración
-        if data.get('backend_name') != backend_name:
-            print(f"⚠️ Backend diferente detectado. Reiniciando vector.")
-            return [0] * num_qubits, False
-        
-        if data.get('num_qubits') != num_qubits:
-            print(f"⚠️ Número de qubits cambió ({data.get('num_qubits')} -> {num_qubits}). Reiniciando vector.")
-            return [0] * num_qubits, False
-        
-        if data.get('calibration_id') != calibration_id:
-            print(f"⚠️ Nueva calibración detectada. Reiniciando vector.")
-            print(f"   Anterior: {data.get('calibration_id')}")
-            print(f"   Actual: {calibration_id}")
-            return [0] * num_qubits, False
-        
-        # Todo válido, cargar vector
-        usage_vector = data.get('usage_vector', [0] * num_qubits)
-        last_updated = data.get('last_updated', 'unknown')
-        print(f"✅ Vector de visitados cargado exitosamente")
-        print(f"   Última actualización: {last_updated}")
-        print(f"   Total de usos: {sum(usage_vector)}")
-        
-        return usage_vector, True
-        
-    except Exception as e:
-        print(f"⚠️ Error al cargar vector de visitados: {e}")
+
+        append_history(
+            backend_name,
+            "Creado nuevo vector de visitados"
+        )
+
         return [0] * num_qubits, False
 
-def save_usage_vector(backend_name, num_qubits, calibration_id, usage_vector):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Validar backend
+        if data.get('backend_name') != backend_name:
+            print("⚠️ Backend diferente detectado. Reiniciando vector.")
+
+            append_history(
+                backend_name,
+                "Backend diferente detectado. Vector reiniciado."
+            )
+
+            return [0] * num_qubits, False
+
+        # Validar número de qubits
+        if data.get('num_qubits') != num_qubits:
+            print(
+                f"⚠️ Número de qubits cambió "
+                f"({data.get('num_qubits')} -> {num_qubits}). "
+                f"Reiniciando vector."
+            )
+
+            append_history(
+                backend_name,
+                f"Número de qubits cambió "
+                f"({data.get('num_qubits')} -> {num_qubits}). "
+                f"Vector reiniciado."
+            )
+
+            return [0] * num_qubits, False
+
+        # Validar calibración
+        if data.get('calibration_id') != calibration_id:
+            print("⚠️ Nueva calibración detectada. Reiniciando vector.")
+            print(f"   Anterior: {data.get('calibration_id')}")
+            print(f"   Actual: {calibration_id}")
+
+            append_history(
+                backend_name,
+                f"Nueva calibración detectada. "
+                f"Anterior={data.get('calibration_id')} "
+                f"Actual={calibration_id}"
+            )
+
+            return [0] * num_qubits, False
+
+        # Cargar vector válido
+        usage_vector = data.get(
+            'usage_vector',
+            [0] * num_qubits
+        )
+
+        last_updated = data.get(
+            'last_updated',
+            'unknown'
+        )
+
+        print("✅ Vector de visitados cargado exitosamente")
+        print(f"   Última actualización: {last_updated}")
+        print(f"   Total de usos: {sum(usage_vector)}")
+
+        append_history(
+            backend_name,
+            f"Vector cargado correctamente. "
+            f"Total usos={sum(usage_vector)}"
+        )
+
+        return usage_vector, True
+
+    except Exception as e:
+        print(f"⚠️ Error al cargar vector de visitados: {e}")
+
+        append_history(
+            backend_name,
+            f"ERROR al cargar vector: {e}"
+        )
+
+        return [0] * num_qubits, False
+
+
+def save_usage_vector(
+    backend_name,
+    num_qubits,
+    calibration_id,
+    usage_vector
+):
     """
-    Guarda el vector de visitados en archivo JSON.
+    Guarda el vector de visitados en JSON y añade
+    una entrada al historial.
     """
     os.makedirs(PERSISTENT_DATA_DIR, exist_ok=True)
-    filepath = os.path.join(PERSISTENT_DATA_DIR, f"{backend_name}_usage.json")
-    
+
+    filepath = os.path.join(
+        PERSISTENT_DATA_DIR,
+        f"{backend_name}_usage.json"
+    )
+
     data = {
         "backend_name": backend_name,
         "calibration_id": calibration_id,
@@ -155,14 +244,154 @@ def save_usage_vector(backend_name, num_qubits, calibration_id, usage_vector):
         "last_updated": datetime.now().isoformat(),
         "total_uses": sum(usage_vector)
     }
-    
+
     try:
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+
         print(f"💾 Vector de visitados guardado en {filepath}")
         print(f"   Total de usos registrados: {sum(usage_vector)}")
+
+        append_history(
+            backend_name,
+            f"Guardado vector. "
+            f"Total usos={sum(usage_vector)} "
+            f"Vector={usage_vector}"
+        )
+
     except Exception as e:
         print(f"⚠️ Error al guardar vector de visitados: {e}")
+
+        append_history(
+            backend_name,
+            f"ERROR al guardar vector: {e}"
+        )
+
+
+def is_far_enough(
+    G,
+    candidate_nodes,
+    used_nodes,
+    min_distance
+):
+    """
+    Verifica que los nodos candidatos estén
+    suficientemente lejos de los usados.
+    """
+    for u in candidate_nodes:
+        for v in used_nodes:
+            try:
+                if nx.shortest_path_length(
+                    G,
+                    u,
+                    v
+                ) <= min_distance:
+                    return False
+
+            except nx.NetworkXNoPath:
+                continue
+
+    return True
+
+
+
+def save_noise_profile(G, backend_name, calibration_id):
+    """
+    Guarda el valor de ruido de cada qubit en un archivo de texto histórico.
+    """
+    os.makedirs(PERSISTENT_DATA_DIR, exist_ok=True)
+    
+    filepath = os.path.join(
+        PERSISTENT_DATA_DIR, 
+        f"{backend_name}_noise_history.txt"
+    )
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    with open(filepath, "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] Calibración: {calibration_id}\n")
+        
+        # Extraer y ordenar los nodos para que salgan en orden (0, 1, 2...)
+        sorted_nodes = sorted(G.nodes())
+        for node in sorted_nodes:
+            noise_val = G.nodes[node].get('noise', float('inf'))
+            # Si el ruido es infinito (qubit roto/desconectado), lo marcamos
+            if noise_val == float('inf'):
+                f.write(f"  Qubit {node:03d}: INF (Inutilizable)\n")
+            else:
+                f.write(f"  Qubit {node:03d}: {noise_val:.6f}\n")
+                
+        f.write("-" * 50 + "\n")
+
+# def load_usage_vector(backend_name, num_qubits, calibration_id):
+#     """
+#     Carga el vector de visitados desde archivo si existe y es válido.
+    
+#     Returns:
+#         list: Vector de uso (todos 0 si es nuevo) y bool indicando si se cargó
+#     """
+#     os.makedirs(PERSISTENT_DATA_DIR, exist_ok=True)
+#     filepath = os.path.join(PERSISTENT_DATA_DIR, f"{backend_name}_usage.json")
+    
+#     if not os.path.exists(filepath):
+#         print(f"📝 Creando nuevo vector de visitados para {backend_name}")
+#         return [0] * num_qubits, False
+    
+#     try:
+#         with open(filepath, 'r') as f:
+#             data = json.load(f)
+        
+#         # Validar que sea la misma máquina y calibración
+#         if data.get('backend_name') != backend_name:
+#             print(f"⚠️ Backend diferente detectado. Reiniciando vector.")
+#             return [0] * num_qubits, False
+        
+#         if data.get('num_qubits') != num_qubits:
+#             print(f"⚠️ Número de qubits cambió ({data.get('num_qubits')} -> {num_qubits}). Reiniciando vector.")
+#             return [0] * num_qubits, False
+        
+#         if data.get('calibration_id') != calibration_id:
+#             print(f"⚠️ Nueva calibración detectada. Reiniciando vector.")
+#             print(f"   Anterior: {data.get('calibration_id')}")
+#             print(f"   Actual: {calibration_id}")
+#             return [0] * num_qubits, False
+        
+#         # Todo válido, cargar vector
+#         usage_vector = data.get('usage_vector', [0] * num_qubits)
+#         last_updated = data.get('last_updated', 'unknown')
+#         print(f"✅ Vector de visitados cargado exitosamente")
+#         print(f"   Última actualización: {last_updated}")
+#         print(f"   Total de usos: {sum(usage_vector)}")
+        
+#         return usage_vector, True
+        
+#     except Exception as e:
+#         print(f"⚠️ Error al cargar vector de visitados: {e}")
+#         return [0] * num_qubits, False
+
+# def save_usage_vector(backend_name, num_qubits, calibration_id, usage_vector):
+#     """
+#     Guarda el vector de visitados en archivo JSON.
+#     """
+#     os.makedirs(PERSISTENT_DATA_DIR, exist_ok=True)
+#     filepath = os.path.join(PERSISTENT_DATA_DIR, f"{backend_name}_usage.json")
+    
+#     data = {
+#         "backend_name": backend_name,
+#         "calibration_id": calibration_id,
+#         "num_qubits": num_qubits,
+#         "usage_vector": usage_vector,
+#         "last_updated": datetime.now().isoformat(),
+#         "total_uses": sum(usage_vector)
+#     }
+    
+#     try:
+#         with open(filepath, 'w') as f:
+#             json.dump(data, f, indent=2)
+#         print(f"💾 Vector de visitados guardado en {filepath}")
+#         print(f"   Total de usos registrados: {sum(usage_vector)}")
+#     except Exception as e:
+#         print(f"⚠️ Error al guardar vector de visitados: {e}")
 
 def is_far_enough(G, candidate_nodes, used_nodes, min_distance):
     """
@@ -333,6 +562,9 @@ def place_circuits_persistent(G, circuits, usage_vector, backend_name, calibrati
     print(f"   - Distancia mínima: {min_circuit_distance}")
     print(f"   - Circuitos en cola: {len(circuits)}")
     print(f"   - Uso actual del backend: {sum(usage_vector)} asignaciones previas")
+
+
+    save_noise_profile(G, backend_name, calibration_id)
 
     def update_forbidden_zones(assigned_nodes):
         for node in assigned_nodes:

@@ -1,0 +1,63 @@
+import pandas as pd
+
+#COMPARA LOS RESULTADOS DE BARBECHO Y HORIZONTAL PARA LOS CIRCUITOS COMUNES, MOSTRANDO QUIÉN ES MEJOR EN CADA MÉTRICA Y CUÁL ES LA DIFERENCIA ABSOLUTA
+
+def cargar_datos(filepath):
+    datos = {}
+    with open(filepath, "r") as f:
+        # Saltar cabecera
+        lines = f.readlines()[2:] 
+        for line in lines:
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 3:
+                nombre = parts[0]
+                js = float(parts[1])
+                wass = float(parts[2])
+                datos[nombre] = {"js": js, "wass": wass}
+    return datos
+
+# 1. Cargar ambos resultados
+# Cambia estos nombres por los nombres reales de tus archivos
+barbecho = cargar_datos("resultadosTodos/resultadosIBM_147_Torino/medias_147_repeticion_torino.txt")
+horizontal = cargar_datos("medias_505_batch.txt")
+
+comparativa = []
+
+# 2. Comparar circuitos comunes
+for circuito in barbecho:
+    if circuito in horizontal:
+        b_js = barbecho[circuito]["js"]
+        h_js = horizontal[circuito]["js"]
+        b_wa = barbecho[circuito]["wass"]
+        h_wa = horizontal[circuito]["wass"]
+        
+        # El mejor es el que tiene MENOR valor
+        mejor_js = "Horizontal" if h_js < b_js else "Barbecho"
+        dif_js = abs(b_js - h_js)
+        
+        mejor_wa = "Horizontal" if h_wa < b_wa else "Barbecho"
+        dif_wa = abs(b_wa - h_wa)
+        
+        comparativa.append({
+            "Circuito": circuito,
+            "Mejor JS": mejor_js,
+            "Mejora JS (abs)": f"{dif_js:.6f}",
+            "Mejor Wass": mejor_wa,
+            "Mejora Wass (abs)": f"{dif_wa:.6f}"
+        })
+
+# 3. Mostrar resumen de victorias
+df = pd.DataFrame(comparativa)
+victorias_js = df["Mejor JS"].value_counts()
+victorias_wa = df["Mejor Wass"].value_counts()
+
+print("\n=== RESUMEN DE VICTORIAS (Menor media es mejor) ===")
+print(f"Jensen-Shannon: {victorias_js.to_dict()}")
+print(f"Wasserstein:    {victorias_wa.to_dict()}")
+
+print("\n=== DETALLE POR CIRCUITO ===")
+print(df.to_string(index=False))
+
+# 4. Guardar comparativa completa
+df.to_csv("comparativa_final_torino.csv", index=False)
+print("\n[✅] Comparativa guardada en 'comparativa_final_torino.csv'")
