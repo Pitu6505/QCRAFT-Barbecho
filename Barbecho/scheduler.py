@@ -158,22 +158,35 @@ class Scheduler:
         #        if list(line_dict.keys())[0] not in ids:
         #            file.write(line)        
 
-    def select_policy(self, url:str, num_qubits:int, shots:int, user:int, circuit_name:str, maxDepth:int, provider:str, policy:str, criterio:str) -> None:
+    def select_policy(self, url:str, num_qubits:int, shots:int, user:int, circuit_name:str, maxDepth:int, provider:str, policy:str, criterio:str, callback_url:str=None) -> None:
         """
-        Select the policy to execute the circuit and send a post request to the policy service
+        Select the policy to execute the circuit and inject it directly into the queue.
+        """
+        # 1. Comprobamos que la política solicitada (ej. 'barbecho') existe
+        if policy not in self.scheduler_policies.services:
+            print(f"⚠️ Error: La política '{policy}' no existe.")
+            return
 
-        Args:
-            url (str): The URL of the circuit            
-            num_qubits (int): The number of qubits of the circuit
-            shots (int): The number of shots to execute the circuit            
-            user (int): The user that executed the circuit    
-            circuit_name (str): The name of the circuit            
-            maxDepth (int): The maximum depth of the circuit            
-            provider (str): The provider to execute the circuit            
-            policy (str): The policy to execute the circuit
-        """
-        data = {"circuit": url, "num_qubits": num_qubits, "shots": shots, "user": user, "circuit_name": circuit_name, "maxDepth": maxDepth, "provider": provider, "criterio": criterio}
-        requests.post(self.policy_service+policy, json=data)
+        # 2. Convertimos provider a lista por si viene como string ('ibm')
+        providers = [provider] if isinstance(provider, str) else provider
+
+        for prov in providers:
+            # 3. Creamos exactamente la misma tupla que creaba tu endpoint /service/
+            data_tuple = (url, num_qubits, shots, user, circuit_name, maxDepth, criterio, callback_url)
+            
+            # 4. Inyectamos la tupla directamente en la lista de la cola
+            self.scheduler_policies.services[policy].queues[prov].append(data_tuple)
+            
+            # 5. Replicamos la lógica original de arranque del temporizador
+            if not self.scheduler_policies.services[policy].timers[prov].is_alive():
+                self.scheduler_policies.services[policy].timers[prov].start()
+            
+            # 6. Replicamos la lógica de límite de qubits (execute_and_reset)
+            n_qubits = sum(item[1] for item in self.scheduler_policies.services[policy].queues[prov])
+            
+            # (Tu código original tenía un límite de 254 qubits para ciertas políticas)
+            if n_qubits >= 254 and (policy not in ['time_maquinas', 'MaxML', 'MaxPD', 'time', 'barbecho']):
+                self.scheduler_policies.services[policy].timers[prov].execute_and_reset()
         
 
     def unschedule_route(self) -> tuple:
@@ -184,10 +197,10 @@ class Scheduler:
             tuple: The response of the unscheduler
         """
         data = request.get_json()
-        self.unscheduler(data['counts'], data['shots'], data['provider'], data['qb'], data['users'], data['circuit_names'])
+        self.unscheduler(data['counts'], data['shots'], data['provider'], data['qb'], data['users'], data['circuit_names'], data.get('callback_urls'))
         return jsonify({'status': 'success'}), 200
 
-    def unscheduler(self, counts:dict, shots:int, provider:str, qb:list, users:list, circuit_names:list) -> tuple:
+    def unscheduler(self, counts:dict, shots:int, provider:str, qb:list, users:list, circuit_names:list, callback_urls:list=None) -> tuple:
         """
         Unschedule a circuit
 
@@ -198,15 +211,23 @@ class Scheduler:
             qb (list): The number of qubits of the circuit            
             users (list): The users that executed the circuit            
             circuit_names (list): The name of the circuit that was executed
-
+            callback_urls (list): The URLs to callback with the results
         Returns:
             tuple: The response of the unscheduler
         """
 
         results = divideResults(counts,shots,provider,qb,users,circuit_names)
 
-        #Save the content of results in a file   
-        for dividedResult in results:
+        # 🟢 NUEVO: Mapeo directo y seguro. Unimos cada circuito con su URL exacta.
+        # Esto evita cualquier fallo si divideResults desordena o agrupa los resultados.
+        mapa_callbacks = {}
+        if callback_urls:
+            for nombre, url in zip(circuit_names, callback_urls):
+                if url:
+                    mapa_callbacks[nombre] = url
+
+        enviados = 0  
+        for i, dividedResult in enumerate(results):
             for key, value in dividedResult.items():
                 # Split the key into the id and the circuit name
                 id, circuit_name = key
@@ -215,8 +236,16 @@ class Scheduler:
                 # Upsert the document
                 # with self.result_lock: #In the case provider is both so the data retrieval is done after the first update finishes
                 #     self.collection.update_one({'_id': str(id), 'circuit': circuit_name}, update, upsert=True)
+                cb_url = mapa_callbacks.get(circuit_name)
+                if cb_url:
+                    try:
+                        requests.post(cb_url, json={"circuit_name": circuit_name, "results": value})
+                        enviados += 1
+                    except Exception as e:
+                        print(f"⚠️ Error enviando callback a {cb_url} para {circuit_name}: {e}")
 
-        return "Results stored successfully", 200  # Return a response
+        print(f"✅ [Unscheduler] Resultados devueltos exitosamente al QML: {enviados}/{len(circuit_names)}")
+        return "Results stored successfully", 200
 
     def store_url(self) -> tuple: # TODO instead of "both", use a list of providers as an input
         """
@@ -356,144 +385,51 @@ class Scheduler:
         Returns:
             tuple: The response of the policy service with the scheduler task identification
         """
-        if request.json.get('url') is None:
-            return "URL must be specified", 400
-        if request.json.get('shots') is None: # TODO if the policy is time, the user "should" not specify shots
-            return "Shots must be specified", 400
-        if request.json.get('policy') is None:
-            policy = 'time'
-            #return "Policy must be specified", 400
-        else:
-            policy = request.json['policy']
-        url = request.json['url']
-        shots = request.json['shots']
-        criterio = request.json['criterio']
-
+        payload = request.json or {}
+        code_direct = payload.get('code')
+        url = payload.get('url')
+        
+        if not url and not code_direct:
+            return "URL or code must be specified", 400
+            
+        shots = payload.get('shots')
         if not isinstance(shots, int) or shots <= 0 or shots > 20000:
             return "Invalid shots value", 400
 
+        policy = payload.get('policy', 'time')
+        criterio = payload.get('criterio', 0)
+        callback_url = payload.get('callback_url')
+        circuit_name = payload.get('circuit_name', url.split('/')[-1] if url else 'local_circuit')
+
         user = uuid.uuid4().int
-        #user = request.headers.get('X-Forwarded-For', request.remote_addr)
-        document = {
-        '_id': str(user),
-        'circuit': url
-        }
-        #with self.result_lock:
-        #    self.collection.insert_one(document)
 
-        # URL is a raw GitHub url, get its content
-        try:
-            parsed_url = urlparse(url)
-            if parsed_url.netloc != "raw.githubusercontent.com":
-                return "URL must come from a raw GitHub file", 400
-            response = requests.get(url)
-            response.raise_for_status()
-            # Get the name of the file
-            circuit_name = url.split('/')[-1]
-        except requests.exceptions.RequestException as e:
-            print(f"Error getting URL content: {e}")
-            return "Invalid URL", 400
-        
-        circuit = response.text
-        # Split the circuit string into lines once
-        lines = circuit.split('\n')
-        importAWS = next((line for line in lines if 'braket.circuits' in line), None)
-        importIBM = next((line for line in lines if 'qiskit' in line), None)
-
-        if importIBM:
-            circ = self.executeCircuitIBM.code_to_circuit_ibm(circuit)
-            # Parse the circuit and extract the number of qubits
-            num_qubits_line = next((line.split('#')[0].strip() for line in lines if '= QuantumRegister(' in line.split('#')[0]), None)
-            num_qubits = int(num_qubits_line.split('QuantumRegister(')[1].split(',')[0].strip(')')) if num_qubits_line else None
-
-            if num_qubits > self.scheduler_policies.getMaxQubits():
-                return "Circuit too large", 400
-
-            # Get the data before the = in the line that appears QuantumCircuit(...)
-            file_circuit_name_line = next((line.split('#')[0].strip() for line in lines if '= QuantumCircuit(' in line.split('#')[0]), None)
-            file_circuit_name = file_circuit_name_line.split('=')[0].strip() if file_circuit_name_line else None
-
-            # Get the name of the quantum register
-            qreg_line = next((line.split('#')[0].strip() for line in lines if '= QuantumRegister(' in line.split('#')[0]), None)
-            qreg = qreg_line.split('=')[0].strip() if qreg_line else None
-            # Get the name of the classical register
-            creg_line = next((line.split('#')[0].strip() for line in lines if '= ClassicalRegister(' in line.split('#')[0]), None)
-            creg = creg_line.split('=')[0].strip() if creg_line else None
-
-
-            # Remove all lines that don't start with file_circuit_name and don't include the line that has file_circuit_name.add_register and line not starts with // or # (comments)
-            circuit_lines = [line.split('#')[0].strip() for line in lines if line.split('#')[0].strip().startswith(file_circuit_name+'.') and 'add_register' not in line]
-            circuit = '\n'.join(circuit_lines)
-            
-            
-            # Replace all appearances of file_circuit_name, qreg, and creg
-            circuit = circuit.replace(file_circuit_name+'.', 'circuit.')
-            circuit = circuit.replace(f'{qreg}[', 'qreg_q[')
-            circuit = circuit.replace(f'{creg}[', 'creg_c[')
-
-            # Create an array with the same length as the number of qubits initialized to 0 to count the number of gates on each qubit
-            qubits = [0] * num_qubits
-            for line in circuit.split('\n'): # For each line in the circuit
-                if 'measure' not in line and 'barrier' not in line: #If the line is not a measure or a barrier
-                    # Check the numbers after qreg_q and add 1 to qubits on that position. It should work with whings like circuit.cx(qreg_q[0], qreg_q[3]), adding 1 to both 0 and 3
-                    # This adds 1 to the number of gates used on that qubit
-                    for match in re.finditer(r'qreg_q\[(\d+)\]', line):
-                        qubits[int(match.group(1))] += 1
-            if self.transpilation_machine == 'local':   
-                maxDepth = max(qubits) #Get the max number of gates on a qubit
-            else:
-                #maxDepth = self.executeCircuitIBM.get_transpiled_circuit_depth_ibm(circ, self.transpilation_backend)
-                maxDepth = 1
+        if code_direct:
+            # Flujo para circuitos inyectados directamente (Nuestro QML)
+            circuit = code_direct
+            num_qubits = payload.get('num_qubits', 2)
+            maxDepth = 1
             provider = 'ibm'
-        
-        elif importAWS:
-            #circ = code_to_circuit_aws(circuit)
-            file_circuit_name_line = next((line.split('#')[0].strip() for line in lines if '= Circuit(' in line.split('#')[0]), None)
-            file_circuit_name = file_circuit_name_line.split('=')[0].strip() if file_circuit_name_line else None
+        else:
+            # Flujo original para archivos de GitHub
+            try:
+                parsed_url = urlparse(url)
+                if parsed_url.netloc != "raw.githubusercontent.com":
+                    return "URL must come from a raw GitHub file", 400
+                response = requests.get(url)
+                response.raise_for_status()
+                circuit = response.text
+                
+                # Intentamos extraer qubits si es de GitHub
+                lines = circuit.split('\n')
+                num_qubits_line = next((line.split('#')[0].strip() for line in lines if '= QuantumRegister(' in line.split('#')[0]), None)
+                num_qubits = int(num_qubits_line.split('QuantumRegister(')[1].split(',')[0].strip(')')) if num_qubits_line else 2
+                maxDepth = 1
+                provider = 'ibm' if 'qiskit' in circuit else 'aws'
+            except Exception as e:
+                return f"Error procesando GitHub: {e}", 400
 
-            # Remove all lines that don't start with file_circuit_name and don't include the line that has file_circuit_name.add_register and line not starts with // or # (comments)
-            circuit_lines = [line.split('#')[0].strip() for line in lines if line.split('#')[0].strip().startswith(file_circuit_name+'.') and 'add_register' not in line]
-            circuit = '\n'.join(circuit_lines)
-
-            circuit = circuit.replace(file_circuit_name+'.', 'circuit.')
-            # Remove tabs and spaces at the beginning of the lines
-            circuit = '\n'.join([line.lstrip() for line in circuit.split('\n')])
-
-            # Create an array with the same length as the number of qubits initialized to 0 to count the number of gates on each qubit
-            qubits = {}
-            for line in circuit.split('\n'): # For each line in the circuit
-                if 'barrier' not in line and 'circuit.' in line: #If the line is not a measure or a barrier
-                    #Get the gate_name, which is the thing after circuit. and before (
-                    gate_name = re.search(r'circuit\.(.*?)\(', line).group(1)
-                    if gate_name in ['rx', 'ry', 'rz', 'gpi', 'gpi2', 'phaseshift']: # Because different gates have different number of parameters and in braket circuits there is no visual difference between a qubit and a parameter
-                        # These gates have a parameter
-                        numbers_retrieved = re.findall(r'\d+', line)
-                        numbers = numbers_retrieved[0] if numbers_retrieved else None
-                        
-                    elif gate_name in ['xx', 'yy', 'zz', 'ms'] or 'cphase' in gate_name:
-                        # These gates have 2 or more parameters
-                        numbers_retrieved = re.findall(r'\d+', line)
-                        numbers = numbers[:2] if numbers_retrieved else None  
-                        
-                    else:
-                        # These gates have no parameters
-                        numbers = re.findall(r'\d+', line)
-                    
-                    for elem in numbers:
-                        if elem not in qubits:
-                            qubits[elem] = 0
-                        else:
-                            qubits[elem] += 1
-            if self.transpilation_machine == 'local':   
-                maxDepth = max(qubits.values()) #Get the max number of gates on a qubit
-            else:
-                # TODO
-                maxDepth = max(qubits.values()) #Get the max number of gates on a qubit
-            # TODO instead, parse it into a circuit and transpile it to get the depth (circuit.depth)
-            num_qubits = len(qubits.values())
-            provider = 'aws'
-
-        self.select_policy(circuit, num_qubits, shots, user, circuit_name, maxDepth, provider, policy, criterio)
+        # Pasamos toda la info (incluyendo el callback) al servicio de políticas
+        self.select_policy(circuit, num_qubits, shots, user, circuit_name, maxDepth, provider, policy, criterio, callback_url)
 
         return str(user), 200
 

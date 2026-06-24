@@ -121,13 +121,13 @@ class SchedulerPolicies:
         self.iteracion_tiempo = 0
         self.iteracion_ML = 0
         self.app = app
-        self.time_limit_seconds = 50#500#300 #estaba en 600
+        self.time_limit_seconds =200#500#300 #estaba en 600
         self.executeCircuitIBM = executeCircuitIBM()
         
         self.setMaxQubits()
         self.max_qubits = 312 #312 #254 o 266
         self.max_qubits_send = 156 #156 #127 o 133
-        self.machine_ibm = 'ibm_kingston' # ibm_brisbane o ibm_torino o ibm_marrakesh o ibm_fez ibm_kingston
+        self.machine_ibm = 'ibm_fez' # ibm_brisbane o ibm_torino o ibm_marrakesh o ibm_fez ibm_kingston
         self.machine_aws = 'local'
         
 
@@ -210,7 +210,9 @@ class SchedulerPolicies:
         maxDepth = request.json['maxDepth']
         provider = request.json['provider']
         criterio = request.json['criterio']
-        data = (circuit, num_qubits, shots, user, circuit_name, maxDepth,criterio)
+
+        callback_url = request.json.get('callback_url', None)
+        data = (circuit, num_qubits, shots, user, circuit_name, maxDepth, criterio, callback_url)
         self.services[service_name].queues[provider].append(data)
         if not self.services[service_name].timers[provider].is_alive():
             self.services[service_name].timers[provider].start()
@@ -418,7 +420,8 @@ class SchedulerPolicies:
             "provider": provider,
             "qb": qb,
             "users": [url[3] for url in urls],
-            "circuit_names": [url[4] for url in urls]
+            "circuit_names": [url[4] for url in urls],
+            "callback_urls": [url[7] if len(url) > 7 else None for url in urls]
         }
 
         try:
