@@ -7,5 +7,4 @@ venv/
 .venv/
 .idea/
 .vscode/
-executeCircuitIBM.py
-ibm_api.py
+

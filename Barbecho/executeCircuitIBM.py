@@ -27,6 +27,7 @@ class executeCircuitIBM:
     def __init__(self):
         self.transpile_lock = threading.Lock()
         self.condition = threading.Condition()
+        self.service = self.load_account_ibm()  # Usar credenciales personalizadas
 
         
         
@@ -42,8 +43,10 @@ class executeCircuitIBM:
         Returns:
             QiskitRuntimeService: The service with the IBM Quantum account loaded.
         """
-        # Load your IBM Quantum account
-        return self.service
+        return QiskitRuntimeService(channel="ibm_cloud",
+                                   token="",
+                                   instance="")
+        
 
     def _extract_virtual_to_physical_map(self, transpiled_circuit: QuantumCircuit, original_num_qubits: int) -> list:
         default_map = list(range(original_num_qubits))
