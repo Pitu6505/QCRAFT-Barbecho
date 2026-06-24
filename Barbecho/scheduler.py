@@ -54,10 +54,10 @@ class Scheduler:
         
         
         
-        #mongo_uri = f"mongodb://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{self.app.config['DB']}:{self.app.config['DB_PORT']}/"
-        #self.client = MongoClient(mongo_uri)
-        #self.db = self.client[os.getenv('DB_NAME')]
-        #self.collection = self.db[os.getenv('DB_COLLECTION')]
+        mongo_uri = f"mongodb://{self.app.config['DB']}:{self.app.config['DB_PORT']}/{os.getenv('DB_NAME')}"
+        self.client = MongoClient(mongo_uri)
+        self.db = self.client[os.getenv('DB_NAME')]
+        self.collection = self.db[os.getenv('DB_COLLECTION')]
 
         self.translator = f"http://{self.app.config['TRANSLATOR']}:{self.app.config['TRANSLATOR_PORT']}/code/"
         self.policy_service = f"http://{self.app.config['HOST']}:{self.app.config['PORT']}/service/"
@@ -233,9 +233,11 @@ class Scheduler:
                 id, circuit_name = key
                 # Create the update document
                 update = {'$inc': {'value.' + k: v for k, v in value.items()}}
-                # Upsert the document
-                # with self.result_lock: #In the case provider is both so the data retrieval is done after the first update finishes
-                #     self.collection.update_one({'_id': str(id), 'circuit': circuit_name}, update, upsert=True)
+                with self.result_lock:
+                    try:
+                        self.collection.update_one({'_id': str(id), 'circuit': circuit_name}, update, upsert=True)
+                    except Exception as e:
+                        print(f"⚠️ Aviso: Error guardando los resultados en MongoDB: {e}")
                 cb_url = mapa_callbacks.get(circuit_name)
                 if cb_url:
                     try:
@@ -306,7 +308,7 @@ class Scheduler:
             '_id': str(user),
             'circuit': url
         }
-        #self.collection.insert_one(document)
+        self.collection.insert_one(document)
 
         # Parse the URL and extract the fragment
         try:

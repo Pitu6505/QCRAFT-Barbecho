@@ -1,6 +1,6 @@
 {
   "backend_name": "ibm_fez",
-  "calibration_id": "2026-06-24T11:37:18+02:00",
+  "calibration_id": "2026-06-24T12:38:56+02:00",
   "num_qubits": 156,
   "usage_vector": [
     0,
@@ -160,6 +160,6 @@
     3,
     4
   ],
-  "last_updated": "2026-06-24T12:19:13.051757",
+  "last_updated": "2026-06-24T13:03:20.495886",
   "total_uses": 512
 }

@@ -418,7 +418,7 @@ class SchedulerPolicies:
             "counts": counts,
             "shots": shots,
             "provider": provider,
-            "qb": qb,
+            "qb": [url[1] for url in urls],
             "users": [url[3] for url in urls],
             "circuit_names": [url[4] for url in urls],
             "callback_urls": [url[7] if len(url) > 7 else None for url in urls]
@@ -759,8 +759,10 @@ class SchedulerPolicies:
             qubits_fisicos_usados_en_esta_capa = set()
             mediciones_en_esta_capa = 0
 
-            for circuit_id in layout:
-                if circuit_id not in circuitos_info:
+            # 🟢 ARREGLO DE ORDEN: Iterar sobre 'circuitos_info' garantiza
+            # que los bits clásicos se asignen en el orden exacto de los usuarios
+            for circuit_id in circuitos_info:
+                if circuit_id not in layout:
                     continue
                     
                 physical_mapping = layout[circuit_id]
